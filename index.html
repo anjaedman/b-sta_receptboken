@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bäste recepten</title>
+    <meta name="theme-color" content="#1d3b2a" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body class="theme-morkgron">
+    <div class="app">
+      <!-- TOP -->
+      <header class="topbar">
+        <button class="burger" id="openDrawer" aria-label="Meny">
+          <span></span>
+        </button>
+        <div class="title">🍲 Bäste recepten</div>
+        <div class="grow"></div>
+
+        <div class="top-actions">
+          <button id="exportBtn" class="btn small">Exportera</button>
+          <input id="importFile" type="file" accept="application/json" hidden />
+          <button id="importBtn" class="btn small secondary">Importera</button>
+        </div>
+
+        <div class="theme-switch">
+          <label for="themeSel">Tema:</label>
+          <select id="themeSel" class="select">
+            <option value="theme-morkgron">Mörkgrön</option>
+            <option value="theme-klassisk">Klassisk</option>
+            <option value="theme-pastell">Pastellig</option>
+          </select>
+        </div>
+      </header>
+
+      <!-- Kategorirad -->
+      <nav class="catbar" id="catBar" aria-label="Kategorier"></nav>
+
+      <!-- Formulär: lägg till recept -->
+      <section class="add-form" id="addSection">
+        <h2>Lägg till nytt recept</h2>
+        <div class="grid-2">
+          <div>
+            <label>Rubrik</label>
+            <input
+              id="titleInput"
+              type="text"
+              placeholder="T.ex. Krämig kycklinggryta"
+            />
+          </div>
+          <div>
+            <label>Kategori</label>
+            <div class="chips" id="catChips"></div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div>
+            <label>Bilder</label>
+            <input id="imageInput" type="file" accept="image/*" multiple />
+          </div>
+          <div>
+            <label>Favorit</label>
+            <button id="favToggle" class="chip" type="button">
+              ☆ Lägg som favorit
+            </button>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div>
+            <label>Ingredienser (en per rad)</label>
+            <textarea id="ingTextarea"></textarea>
+          </div>
+          <div>
+            <label>Instruktioner</label>
+            <textarea id="instTextarea"></textarea>
+          </div>
+        </div>
+        <div>
+          <label>Taggar (kommaseparerade)</label>
+          <input id="tagInput" type="text" placeholder="keto, snabb, vardag" />
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+          <button id="saveBtn" class="btn">Spara recept</button>
+          <button id="clearBtn" class="btn secondary">Rensa formulär</button>
+        </div>
+      </section>
+
+      <!-- Innehåll -->
+      <main class="content">
+        <div id="viewTitle" class="hint">Hem</div>
+
+        <div class="searchbar" id="searchBar" style="display: none">
+          <input id="searchInput" type="text" placeholder="Sök recept…" />
+          <button class="btn" id="searchBtn">Sök</button>
+          <button class="btn secondary" id="searchClear">Rensa</button>
+        </div>
+
+        <div id="cards" class="cards"></div>
+        <div id="alphaList" class="alpha" style="display: none"></div>
+        <div id="empty" class="empty" style="display: none">
+          Inga recept ännu ✨
+        </div>
+      </main>
+    </div>
+
+    <!-- Drawer (hamburgermeny) -->
+    <div class="drawer" id="drawer" aria-hidden="true">
+      <div class="backdrop" data-close></div>
+      <aside class="panel">
+        <h4>Kategorier</h4>
+        <div id="catList"></div>
+      </aside>
+    </div>
+
+    <!-- Detaljvy -->
+    <dialog id="detail">
+      <div class="sheet">
+        <div class="gallery">
+          <img id="detailMain" class="gallery-main" alt="Receptbild" />
+          <div class="thumbs" id="detailThumbs"></div>
+        </div>
+        <div class="sheet-body">
+          <div class="meta">
+            <span id="detailCat" class="pill"></span>
+            <button id="detailFav" class="chip" type="button">☆ Favorit</button>
+          </div>
+          <h2 id="detailTitle"></h2>
+          <div id="detailTagsWrap" class="tagsline" style="display: none"></div>
+          <div id="detailIngsWrap" class="section" style="display: none">
+            <h3>Ingredienser</h3>
+            <ul id="detailIngs"></ul>
+          </div>
+          <div id="detailInstWrap" class="section" style="display: none">
+            <h3>Instruktioner</h3>
+            <div id="detailInst" style="white-space: pre-wrap"></div>
+          </div>
+          <div class="closebar">
+            <button class="btn secondary" id="openImage">Öppna bild</button>
+            <button class="btn secondary" id="shareBtn">Dela</button>
+            <button class="btn secondary" id="printBtn">Skriv ut</button>
+            <button class="btn secondary danger" id="deleteBtn">Ta bort</button>
+            <button class="btn" id="closeDetail">Stäng</button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Viktigt: app.js längst NER i body -->
+    <script src="app.js"></script>
+  </body>
+</html>
