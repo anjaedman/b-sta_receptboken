@@ -328,7 +328,8 @@ var clearBtn = el('#clearBtn');
 if (clearBtn) clearBtn.addEventListener('click', function () { clearForm(); });
 function clearForm() {
     ['#titleInput', '#ingTextarea', '#instTextarea', '#tagInput'].forEach(function (id) { var n = el(id); if (n) n.value = ''; });
-    var fi = el('#imageInput'); if (fi) fi.value = '';
+    var fi = el('#imageInput'); if (fi) value = '';
+    var fi2 = el('#imageInput'); if (fi2) fi2.value = '';
     formFav = false; if (favToggle) { favToggle.classList.remove('active'); favToggle.textContent = '☆ Lägg som favorit'; }
     selectedFormCat = null; renderCatChips();
 }
@@ -579,6 +580,181 @@ if (detailFav) {
     });
 }
 
+// ---- Dela som bild (NY) ----
+// Skapa radbrytningar som får plats inom maxWidth
+function wrapText(ctx, text, maxWidth, lineHeight, font) {
+    if (font) ctx.font = font;
+    var words = String(text || '').split(/\s+/);
+    var lines = [];
+    var line = '';
+    for (var i = 0; i < words.length; i++) {
+        var test = line ? (line + ' ' + words[i]) : words[i];
+        var w = ctx.measureText(test).width;
+        if (w > maxWidth && line) {
+            lines.push(line);
+            line = words[i];
+        } else {
+            line = test;
+        }
+    }
+    if (line) lines.push(line);
+    return lines;
+}
+
+function renderRecipeToCanvas(r) {
+    // Hämta färger från aktuellt tema
+    var cs = getComputedStyle(document.body);
+    var bg = cs.getPropertyValue('--card').trim() || '#ffffff';
+    var fg = cs.getPropertyValue('--text').trim() || '#111111';
+    var muted = cs.getPropertyValue('--muted').trim() || '#666666';
+    var accent = cs.getPropertyValue('--accent').trim() || '#2c6e49';
+
+    // Layout
+    var DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    var W = 1080;             // px (CSS)
+    var PAD = 48;             // px (CSS)
+    var contentW = W - PAD * 2;
+
+    // Typsnitt
+    var titleFont = '700 48px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
+    var h3Font = '600 30px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
+    var bodyFont = '400 28px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
+    var smallFont = '400 22px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
+    var lh = 38, lhSmall = 30;
+
+    // Canvas för mätning
+    var c1 = document.createElement('canvas');
+    var ctx = c1.getContext('2d');
+    ctx.font = titleFont;
+
+    var y = PAD;
+
+    // Title
+    var titleLines = wrapText(ctx, r.title || '(Utan titel)', contentW, lh, titleFont);
+    var titleHeight = titleLines.length * lh + 8;
+    y += titleHeight;
+
+    // Kategori & taggar
+    ctx.font = smallFont;
+    var catLine = 'Kategori: ' + (r.cat || '–');
+    var catHeight = lhSmall + 8;
+    y += catHeight;
+
+    var tagsText = (r.tags && r.tags.length) ? ('Taggar: ' + r.tags.join(', ')) : '';
+    var tagLines = tagsText ? wrapText(ctx, tagsText, contentW, lhSmall, smallFont) : [];
+    var tagsHeight = tagLines.length ? (tagLines.length * lhSmall + 8) : 0;
+    y += tagsHeight;
+
+    // Ingredienser
+    ctx.font = h3Font;
+    y += lh; // rubrikmarginal
+    var ingsTitleH = lh;
+    ctx.font = bodyFont;
+    var ingLines = [];
+    (r.ings || []).forEach(function (i) {
+        var bullet = '• ' + i;
+        var wrapped = wrapText(ctx, bullet, contentW, lh, bodyFont);
+        ingLines = ingLines.concat(wrapped);
+    });
+    var ingHeight = (r.ings && r.ings.length ? (ingsTitleH + ingLines.length * lh + 8) : 0);
+    y += ingHeight;
+
+    // Instruktioner
+    ctx.font = h3Font;
+    var hasInst = !!(r.inst && r.inst.trim());
+    var instTitleH = hasInst ? (lh + 8) : 0;
+    y += instTitleH;
+    ctx.font = bodyFont;
+    var instLines = hasInst ? wrapText(ctx, r.inst, contentW, lh, bodyFont) : [];
+    var instHeight = instLines.length * lh;
+    y += instHeight;
+
+    // Bottenmarginal
+    y += PAD;
+
+    // Riktiga canvas
+    var H = y;
+    var canvas = document.createElement('canvas');
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+
+    var c = canvas.getContext('2d');
+    c.scale(DPR, DPR);
+
+    // Bakgrund
+    c.fillStyle = bg || '#fff';
+    c.fillRect(0, 0, W, H);
+
+    var cursorY = PAD;
+
+    // Title
+    c.fillStyle = fg;
+    c.font = titleFont;
+    titleLines.forEach(function (line) {
+        c.fillText(line, PAD, cursorY);
+        cursorY += lh;
+    });
+
+    // Kategori
+    c.font = smallFont;
+    c.fillStyle = muted;
+    c.fillText(catLine, PAD, cursorY);
+    cursorY += lhSmall + 8;
+
+    // Taggar
+    c.fillStyle = muted;
+    tagLines.forEach(function (line) {
+        c.fillText(line, PAD, cursorY);
+        cursorY += lhSmall;
+    });
+
+    // Ingredienser
+    if (r.ings && r.ings.length) {
+        cursorY += 8;
+        c.font = h3Font;
+        c.fillStyle = accent;
+        c.fillText('Ingredienser', PAD, cursorY);
+        cursorY += lh;
+
+        c.font = bodyFont;
+        c.fillStyle = fg;
+        ingLines.forEach(function (line) {
+            c.fillText(line, PAD, cursorY);
+            cursorY += lh;
+        });
+    }
+
+    // Instruktioner
+    if (hasInst) {
+        cursorY += 8;
+        c.font = h3Font;
+        c.fillStyle = accent;
+        c.fillText('Instruktioner', PAD, cursorY);
+        cursorY += lh;
+
+        c.font = bodyFont;
+        c.fillStyle = fg;
+        instLines.forEach(function (line) {
+            c.fillText(line, PAD, cursorY);
+            cursorY += lh;
+        });
+    }
+
+    return canvas;
+}
+
+function shareRecipeImage(r) {
+    var canvas = renderRecipeToCanvas(r);
+    return new Promise(function (resolve) {
+        canvas.toBlob(function (blob) {
+            if (!blob) return resolve(null);
+            resolve(blob);
+        }, 'image/png', 0.95);
+    });
+}
+
 // ✔️ Dela: försök bild + full text (Web Share L2), annars smart fallback
 var shareBtn = el('#shareBtn');
 if (shareBtn) {
@@ -628,6 +804,46 @@ if (shareBtn) {
     });
 }
 
+// ➕ Skapa “Dela som bild”-knapp dynamiskt om den saknas i HTML
+(function ensureShareImageBtn() {
+    if (!el('#shareImgBtn')) {
+        var bars = all('.closebar .top-actions');
+        if (bars && bars[0]) {
+            var btn = document.createElement('button');
+            btn.id = 'shareImgBtn';
+            btn.className = 'btn secondary';
+            btn.textContent = 'Dela som bild';
+            // Lägg den precis efter “Dela/Kopiera”
+            var shareIndex = Array.prototype.findIndex.call(bars[0].children, function (c) { return c.id === 'shareBtn'; });
+            if (shareIndex >= 0 && bars[0].children[shareIndex].nextSibling) {
+                bars[0].insertBefore(btn, bars[0].children[shareIndex].nextSibling);
+            } else {
+                bars[0].appendChild(btn);
+            }
+        }
+    }
+})();
+
+// 🎨 Klick: Dela som bild
+var shareImgBtn = el('#shareImgBtn');
+if (shareImgBtn) {
+    shareImgBtn.addEventListener('click', function () {
+        var r = DB.recipes.find(function (x) { return x.id === openedId; });
+        if (!r) return;
+        shareRecipeImage(r).then(function (blob) {
+            if (!blob) return;
+            var file = new File([blob], (r.title || 'recept') + '.png', { type: 'image/png' });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                navigator.share({ title: r.title, files: [file] }).catch(function () { });
+            } else {
+                // Ladda ner om delning ej stöds
+                openOrDownloadBlob(blob, (r.title || 'recept') + '.png');
+            }
+        });
+    });
+}
+
+// Print
 var printBtn = el('#printBtn');
 if (printBtn) printBtn.addEventListener('click', function () { window.print(); });
 
@@ -656,7 +872,7 @@ function releaseWakeLock() { try { if (wakeLock && wakeLock.release) { wakeLock.
     routeTo('Hem');
 
     if (DB.recipes.length === 0) {
-        // Förifyllt recept: Pepparkaksdeg utan "socker" – läggs i Jul (fav) och i keto
+        // Förifyllt recept: Pepparkaksdeg utan "socker" – Jul (fav) + keto
         var baseTags = ['jul', 'keto', 'sockerfri', 'pepparkakor'];
         var pepparkaksRecept = {
             id: genId(),
@@ -689,6 +905,25 @@ function releaseWakeLock() { try { if (wakeLock && wakeLock.release) { wakeLock.
 
         store.set(DB);
         routeTo('Hem');
+    }
+
+    // Om vi lade till knappen före dialogen fanns – bind igen nu
+    var shareImgBtn2 = el('#shareImgBtn');
+    if (shareImgBtn2 && !shareImgBtn2._bound) {
+        shareImgBtn2.addEventListener('click', function () {
+            var r = DB.recipes.find(function (x) { return x.id === openedId; });
+            if (!r) return;
+            shareRecipeImage(r).then(function (blob) {
+                if (!blob) return;
+                var file = new File([blob], (r.title || 'recept') + '.png', { type: 'image/png' });
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    navigator.share({ title: r.title, files: [file] }).catch(function () { });
+                } else {
+                    openOrDownloadBlob(blob, (r.title || 'recept') + '.png');
+                }
+            });
+        });
+        shareImgBtn2._bound = true;
     }
 
     if ('serviceWorker' in navigator) {
