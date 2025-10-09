@@ -81,7 +81,7 @@ function openOrDownloadBlob(blob, filename) {
     setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
 }
 
-// Skala ned bilder innan de sparas
+// Skala ned bilder innan de sparas (komprimering)
 function readFilesAsDataURLs(files) {
     var MAX_SIDE = 1600;
     var QUALITY = 0.85;
@@ -320,7 +320,10 @@ if (saveBtn) {
             DB.recipes.push(rec);
             store.set(DB);
             clearForm();
+
+            // <-- Tillbaka till startsidan efter sparat
             routeTo('Hem');
+            try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { }
         });
     });
 }
@@ -936,7 +939,7 @@ function releaseWakeLock() { try { if (wakeLock && wakeLock.release) { wakeLock.
         routeTo('Hem');
     }
 
-    // ifall knappen skapades innan dialogen fanns – bind igen
+    // ifall “Dela som bild”-knappen skapades innan dialogen fanns – bind igen
     var shareImgBtn2 = el('#shareImgBtn');
     if (shareImgBtn2 && !shareImgBtn2._bound) {
         shareImgBtn2.addEventListener('click', function () {
