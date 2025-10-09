@@ -1,13 +1,13 @@
 {
-  "name": "Random Recept",
-  "short_name": "Random Recept",
+  "name": "Bästa Receptboken",
+  "short_name": "Receptboken",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#0f1a15",
   "theme_color": "#1d3b2a",
   "lang": "sv-SE",
   "icons": [
-    { "src": "icons/icon-512.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "icons/icon-192.png", "type": "image/png", "sizes": "192x192" },
     { "src": "icons/icon-512.png", "type": "image/png", "sizes": "512x512" }
   ]
 }
