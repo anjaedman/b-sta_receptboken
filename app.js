@@ -1,8 +1,8 @@
-// Bäste recepten – app.js (kompatibel, med Ta bort)
+
 
 // --- Konstanter ---
-var CATS = ['Hem', 'keto', 'kött', 'kyckling', 'fisk', 'färs', 'dessert', 'bröd', 'vegetariskt', 'godis', 'övrigt', 'favoriter', 'sök'];
-var LIST_CATS = CATS.filter(function (c) { return c !== 'Hem'; });
+var CATS = ['Hem', 'nytt', 'favoriter', 'sök', 'Jul', 'keto', 'kött', 'kyckling', 'fisk', 'färs', 'dessert', 'bröd', 'vegetariskt', 'godis', 'övrigt'];
+var LIST_CATS = CATS.filter(function (c) { return !['Hem', 'nytt', 'favoriter', 'sök'].includes(c); });
 var coll = new Intl.Collator('sv', { sensitivity: 'base' });
 
 // Tom-bild
@@ -31,7 +31,7 @@ var genId = (window.crypto && window.crypto.randomUUID) ? function () { return w
 
 // Lagring
 var store = {
-    key: 'baste-recepten.v2',   // bumpa version om du haft cache-trubbel
+    key: 'baste-recepten.v4', // bumpad pga layoutförändringar
     get: function () {
         try { return JSON.parse(localStorage.getItem(this.key)) || { recipes: [], theme: 'theme-morkgron' }; }
         catch (e) { return { recipes: [], theme: 'theme-morkgron' }; }
@@ -48,7 +48,17 @@ function el(s) { return document.querySelector(s); }
 function all(s) { return Array.prototype.slice.call(document.querySelectorAll(s)); }
 function parseTags(s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).map(function (x) { return x.toLowerCase(); }); }
 function lines(t) { return String(t || '').split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean); }
-function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, function (m) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[m]; }); }
+function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, function (m) {
+        return {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[m];
+    });
+}
 function readFilesAsDataURLs(files) {
     return new Promise(function (res) {
         if (!files || !files.length) return res([]);
@@ -61,21 +71,31 @@ function readFilesAsDataURLs(files) {
         })();
     });
 }
+function show(sel, visible) {
+    var n = el(sel);
+    if (!n) return;
+    n.style.display = visible ? '' : 'none';
+}
 
-// Tema init
+// Tema init (nu i menyn)
 (function () {
     var body = document.body;
     body.classList.remove('theme-morkgron', 'theme-klassisk', 'theme-pastell');
     body.classList.add(DB.theme || 'theme-morkgron');
-    var sel = el('#themeSel');
-    if (sel) {
-        sel.value = DB.theme || 'theme-morkgron';
-        sel.addEventListener('change', function (e) {
-            body.classList.remove('theme-morkgron', 'theme-klassisk', 'theme-pastell');
-            body.classList.add(e.target.value);
-            DB.theme = e.target.value; store.set(DB);
-        });
+    function bindThemeSel() {
+        var sel = el('#themeSel');
+        if (sel) {
+            sel.value = DB.theme || 'theme-morkgron';
+            sel.addEventListener('change', function (e) {
+                body.classList.remove('theme-morkgron', 'theme-klassisk', 'theme-pastell');
+                body.classList.add(e.target.value);
+                DB.theme = e.target.value; store.set(DB);
+            });
+        }
     }
+    // drawer finns direkt, men om menyn renderas lite senare – bind igen
+    bindThemeSel();
+    setTimeout(bindThemeSel, 200);
 })();
 
 // Export/Import
@@ -124,39 +144,23 @@ var selectedFormCat = null;
 function renderCatChips() {
     var wrap = el('#catChips'); if (!wrap) return;
     wrap.innerHTML = '';
-    LIST_CATS.filter(function (c) { return c !== 'favoriter' && c !== 'sök'; })
-        .forEach(function (c) {
-            var b = document.createElement('button');
-            b.type = 'button'; b.className = 'chip'; b.textContent = c;
-            if (selectedFormCat === c) b.classList.add('active');
-            b.addEventListener('click', function () {
-                selectedFormCat = (selectedFormCat === c ? null : c);
-                renderCatChips();
-            });
-            wrap.appendChild(b);
+    LIST_CATS.forEach(function (c) {
+        var b = document.createElement('button');
+        b.type = 'button'; b.className = 'chip'; b.textContent = c;
+        if (selectedFormCat === c) b.classList.add('active');
+        b.addEventListener('click', function () {
+            selectedFormCat = (selectedFormCat === c ? null : c);
+            renderCatChips();
         });
+        wrap.appendChild(b);
+    });
 }
 renderCatChips();
 
-// Kategoribar
-(function () {
-    var bar = el('#catBar'); if (!bar) return;
-    bar.innerHTML = '';
-    CATS.forEach(function (c) {
-        var btn = document.createElement('button');
-        btn.className = 'catbtn' + (c === currentCat ? ' active' : '');
-        btn.textContent = (c === 'Hem' ? '🏠 Hem' : c);
-        btn.addEventListener('click', function () { routeTo(c); });
-        bar.appendChild(btn);
-    });
-})();
-
-// Drawer (hamburgermeny)
+// Drawer (hamburgermeny) – kategorier och vyer endast här
 var drawer = el('#drawer');
 var openDrawerBtn = el('#openDrawer');
-if (openDrawerBtn) {
-    openDrawerBtn.addEventListener('click', function () { openDrawer(); });
-}
+if (openDrawerBtn) openDrawerBtn.addEventListener('click', function () { openDrawer(); });
 if (drawer) {
     drawer.addEventListener('click', function (e) {
         if (e.target && e.target.hasAttribute('data-close')) closeDrawer();
@@ -167,14 +171,34 @@ function closeDrawer() { if (!drawer) return; drawer.classList.remove('open'); d
 function renderCatList() {
     var wrap = el('#catList'); if (!wrap) return;
     wrap.innerHTML = '';
-    CATS.forEach(function (c) {
+
+    // Först huvudvyer
+    ['Hem', 'nytt', 'favoriter', 'sök'].forEach(function (c) {
         var d = document.createElement('div');
         d.className = 'cat' + (c === currentCat ? ' active' : '');
-        d.textContent = (c === 'Hem' ? '🏠 Hem' : c);
+        d.textContent = (c === 'nytt' ? '＋ Nytt' : (c === 'favoriter' ? '★ Favoriter' : (c === 'sök' ? '🔎 Sök' : '🏠 Hem')));
+        d.addEventListener('click', function () { closeDrawer(); routeTo(c); });
+        wrap.appendChild(d);
+    });
+
+    // Kategorier
+    var hr = document.createElement('hr'); hr.style.borderColor = 'var(--border)'; wrap.appendChild(hr);
+    LIST_CATS.forEach(function (c) {
+        var d = document.createElement('div');
+        d.className = 'cat' + (c === currentCat ? ' active' : '');
+        d.textContent = c;
         d.addEventListener('click', function () { closeDrawer(); routeTo(c); });
         wrap.appendChild(d);
     });
 }
+
+// Headerknappar
+var goAddBtn = el('#goAddBtn');
+var homeAddBtn = el('#homeAddBtn');
+if (goAddBtn) goAddBtn.addEventListener('click', function () { routeTo('nytt'); });
+if (homeAddBtn) homeAddBtn.addEventListener('click', function () { routeTo('nytt'); });
+var goHomeBtn = el('#goHomeBtn');
+if (goHomeBtn) goHomeBtn.addEventListener('click', function () { routeTo('Hem'); });
 
 // Form: spara/rensa/favorit
 var formFav = false;
@@ -212,23 +236,20 @@ if (saveBtn) {
             DB.recipes.push(rec);
             store.set(DB);
             clearForm();
-            routeTo(currentCat);
+            routeTo('Hem'); // åter till startsidan
         });
     });
 }
 var clearBtn = el('#clearBtn');
-if (clearBtn) {
-    clearBtn.addEventListener('click', function () { clearForm(); });
-}
+if (clearBtn) clearBtn.addEventListener('click', function () { clearForm(); });
 function clearForm() {
-    var ids = ['#titleInput', '#ingTextarea', '#instTextarea', '#tagInput'];
-    ids.forEach(function (id) { var n = el(id); if (n) n.value = ''; });
+    ['#titleInput', '#ingTextarea', '#instTextarea', '#tagInput'].forEach(function (id) { var n = el(id); if (n) n.value = ''; });
     var fi = el('#imageInput'); if (fi) fi.value = '';
     formFav = false; if (favToggle) { favToggle.classList.remove('active'); favToggle.textContent = '☆ Lägg som favorit'; }
     selectedFormCat = null; renderCatChips();
 }
 
-// Render: cards
+// Render: kort
 function renderCards(list) {
     var cards = el('#cards'), alpha = el('#alphaList'), empty = el('#empty');
     if (!cards || !alpha || !empty) return;
@@ -297,34 +318,80 @@ function renderAlphaList(list) {
     });
 }
 
+// Senaste 5 på startsidan
+function renderRecent() {
+    var wrap = el('#recentCards'); if (!wrap) return;
+    wrap.innerHTML = '';
+    var list = DB.recipes.slice().sort(function (a, b) { return b.createdAt - a.createdAt; }).slice(0, 5);
+    list.forEach(function (r) {
+        var c = document.createElement('article'); c.className = 'card';
+        var img = document.createElement('img'); img.className = 'thumb'; img.alt = r.title; img.loading = 'lazy'; img.src = (r.images && r.images[0]) || DEFAULT_IMG; c.appendChild(img);
+        var body = document.createElement('div'); body.className = 'card-body';
+        var row = document.createElement('div'); row.className = 'title-row';
+        var h = document.createElement('h3'); h.textContent = r.title; row.appendChild(h);
+        var fav = document.createElement('div'); fav.className = 'fav';
+        var favBtn = document.createElement('button'); favBtn.textContent = r.fav ? '★' : '☆';
+        favBtn.addEventListener('click', function (e) {
+            e.stopPropagation(); r.fav = !r.fav; favBtn.textContent = r.fav ? '★' : '☆'; store.set(DB);
+        });
+        fav.appendChild(favBtn); row.appendChild(fav);
+        body.appendChild(row);
+        var badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = r.cat; body.appendChild(badge);
+        c.appendChild(body);
+        c.addEventListener('click', function () { openDetail(r.id); });
+        wrap.appendChild(c);
+    });
+}
+
 // Routing
 function routeTo(cat) {
     currentCat = cat;
-    var vt = el('#viewTitle'); if (vt) vt.textContent = cat;
-    all('.catbtn').forEach(function (b) { b.classList.toggle('active', b.textContent.replace('🏠 ', '') === cat); });
-    var searchBar = el('#searchBar'); if (searchBar) searchBar.style.display = (cat === 'sök') ? 'flex' : 'none';
+
+    // visa/dölj sektioner
+    var isHome = (cat === 'Hem');
+    var isNew = (cat === 'nytt');
+    var isFav = (cat === 'favoriter');
+    var isSearch = (cat === 'sök');
+
+    show('#homeIntro', isHome);
+    show('#recentWrap', isHome);
+    show('#addView', isNew);
+    show('#searchBar', isSearch);
+
+    // huvudlistor av/på
+    show('#cards', false);
+    show('#alphaList', false);
+    show('#empty', false);
 
     var list = DB.recipes.slice();
-    if (cat === 'Hem') {
-        list.sort(function (a, b) { return b.createdAt - a.createdAt; }); renderCards(list);
-    } else if (cat === 'favoriter') {
+
+    if (isHome) {
+        renderRecent();
+    } else if (isFav) {
         renderCards(list.filter(function (r) { return r.fav; }));
-    } else if (cat === 'sök') {
+    } else if (isSearch) {
         renderCards(list);
+    } else if (isNew) {
+        // enbart formulär
     } else {
+        // kategori A–Ö
         renderAlphaList(list.filter(function (r) { return r.cat === cat; }));
     }
+
+    // alltid visa verktygsrad under kortsektionerna (den ligger efter cards/alpha i DOM)
+    show('#toolsWrap', true);
+
+    // Stäng meny om öppen
+    closeDrawer();
 }
 
 // Sök
 var searchBtn = el('#searchBtn');
 var searchClear = el('#searchClear');
 var searchInput = el('#searchInput');
-
 if (searchBtn) searchBtn.addEventListener('click', runSearch);
 if (searchClear) searchClear.addEventListener('click', function () { if (searchInput) searchInput.value = ''; routeTo('sök'); });
 if (searchInput) searchInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') runSearch(); });
-
 function runSearch() {
     var q = (searchInput && searchInput.value || '').trim().toLowerCase();
     var list = DB.recipes.filter(function (r) {
@@ -401,16 +468,10 @@ function openDetail(id) {
 }
 
 var closeDetailBtn = el('#closeDetail');
-if (closeDetailBtn) {
-    closeDetailBtn.addEventListener('click', function () { if (detail && detail.close) detail.close(); releaseWakeLock(); });
-}
+if (closeDetailBtn) closeDetailBtn.addEventListener('click', function () { if (detail && detail.close) detail.close(); releaseWakeLock(); });
 var openImageBtn = el('#openImage');
-if (openImageBtn) {
-    openImageBtn.addEventListener('click', function () { if (detailMain && detailMain.src) window.open(detailMain.src, '_blank'); });
-}
-if (detail) {
-    detail.addEventListener('close', function () { releaseWakeLock(); });
-}
+if (openImageBtn) openImageBtn.addEventListener('click', function () { if (detailMain && detailMain.src) window.open(detailMain.src, '_blank'); });
+if (detail) detail.addEventListener('close', function () { releaseWakeLock(); });
 if (detailFav) {
     detailFav.addEventListener('click', function () {
         var r = DB.recipes.find(function (x) { return x.id === openedId; }); if (!r) return;
@@ -421,21 +482,17 @@ if (detailFav) {
     });
 }
 var shareBtn = el('#shareBtn');
-if (shareBtn) {
-    shareBtn.addEventListener('click', function () {
-        var r = DB.recipes.find(function (x) { return x.id === openedId; }); if (!r) return;
-        var text = r.title + '\nKategori: ' + r.cat
-            + (r.tags && r.tags.length ? '\nTaggar: ' + r.tags.join(', ') : '')
-            + (r.ings && r.ings.length ? '\n\nIngredienser:\n- ' + r.ings.join('\n- ') : '')
-            + (r.inst ? '\n\nInstruktioner:\n' + r.inst : '');
-        if (navigator.share) { navigator.share({ title: r.title, text: text }).catch(function () { }); }
-        else { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text); alert('Receptet kopierades till urklipp.'); } }
-    });
-}
+if (shareBtn) shareBtn.addEventListener('click', function () {
+    var r = DB.recipes.find(function (x) { return x.id === openedId; }); if (!r) return;
+    var text = r.title + '\nKategori: ' + r.cat
+        + (r.tags && r.tags.length ? '\nTaggar: ' + r.tags.join(', ') : '')
+        + (r.ings && r.ings.length ? '\n\nIngredienser:\n- ' + r.ings.join('\n- ') : '')
+        + (r.inst ? '\n\nInstruktioner:\n' + r.inst : '');
+    if (navigator.share) { navigator.share({ title: r.title, text: text }).catch(function () { }); }
+    else { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text); alert('Receptet kopierades till urklipp.'); } }
+});
 var printBtn = el('#printBtn');
-if (printBtn) {
-    printBtn.addEventListener('click', function () { window.print(); });
-}
+if (printBtn) printBtn.addEventListener('click', function () { window.print(); });
 
 // Ta bort recept
 if (deleteBtn) {
@@ -462,20 +519,42 @@ function releaseWakeLock() { try { if (wakeLock && wakeLock.release) { wakeLock.
     routeTo('Hem');
 
     if (DB.recipes.length === 0) {
-        [{ title: 'Keto pepparkakor', cat: 'keto', tags: ['keto', 'jul'] },
-        { title: 'Köttbullar', cat: 'kött', tags: ['klassiker'] },
-        { title: 'Citronfisk i ugn', cat: 'fisk', tags: ['snabb'] }]
-            .forEach(function (d) {
-                DB.recipes.push({
-                    id: genId(), title: d.title, cat: d.cat, fav: false,
-                    images: [DEFAULT_IMG], ings: [], inst: '', tags: d.tags || [], createdAt: Date.now()
-                });
-            });
+        // Förifyllt recept: Pepparkaksdeg utan "socker" – läggs i Jul (fav) och i keto
+        var baseTags = ['jul', 'keto', 'sockerfri', 'pepparkakor'];
+        var pepparkaksRecept = {
+            id: genId(),
+            title: 'Pepparkaksdeg utan "socker"',
+            cat: 'Jul',
+            fav: true,
+            images: [DEFAULT_IMG],
+            tags: baseTags,
+            ings: [
+                '100 g smör',
+                '1 dl sötning (t.ex. erytritol/stevia-blandning eller Sukrin Gold)',
+                '1 msk pepparkakskryddor (kanel, ingefära, nejlika, kardemumma)',
+                '1 ägg',
+                '4 dl mandelmjöl',
+                '1 dl kokosmjöl',
+                '1 tsk bakpulver',
+                '1 krm salt'
+            ],
+            inst: '1. Smält smör, sötning och kryddor i kastrull. Låt svalna något.\n2. Vispa ner ägget.\n3. Blanda torra ingredienser separat.\n4. Rör ihop allt till en deg.\n5. Vila i kyl minst 1 timme (gärna över natt).\n6. Kavla ut mellan bakplåtspapper, stansa figurer.\n7. Grädda 8–10 min i 175°C. Låt svalna helt för krisp.',
+            createdAt: Date.now()
+        };
+
+        var ketoKopia = JSON.parse(JSON.stringify(pepparkaksRecept));
+        ketoKopia.id = genId();
+        ketoKopia.cat = 'keto';
+        ketoKopia.fav = false;
+
+        DB.recipes.push(pepparkaksRecept);
+        DB.recipes.push(ketoKopia);
+
         store.set(DB);
         routeTo('Hem');
     }
 
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js')['catch'](function () { });
+        navigator.serviceWorker.register('./sw.js').catch(function () { });
     }
 })();

@@ -19,25 +19,28 @@
   --btn: #1c3a2b;
   --btnText: #eafff6;
 }
+/* Klassisk – mer kontrast och pop */
 .theme-klassisk {
-  --bg: #f4efe7;
-  --card: #ffffff;
-  --text: #1e1e1e;
-  --muted: #6b6b6b;
-  --accent: #2c6e49;
-  --border: #e8dfd3;
-  --btn: #2c6e49;
-  --btnText: #ffffff;
+  --bg: #fff7ec; /* varm ljus bakgrund */
+  --card: #ffffff; /* rena kort */
+  --text: #111111; /* djup svart text */
+  --muted: #6b6b6b; /* neutral sekundär */
+  --accent: #e63e00; /* stark orange/röd accent */
+  --border: #ffe0c2; /* varm tunn kant */
+  --btn: #111111; /* svarta knappar för punch */
+  --btnText: #ffffff; /* vit text på knappar */
 }
+
+/* Pastell – mer färg och tydlig accent */
 .theme-pastell {
-  --bg: #fff7fb;
-  --card: #9fb4b5;
-  --text: #2b2436;
-  --muted: #af84c9;
-  --accent: #ad2e6e;
-  --border: #ffe3f3;
-  --btn: #7c90ff;
-  --btnText: #ffffff;
+  --bg: #fbf0ff; /* ljus lavendel */
+  --card: #ffffff; /* ljusa kort för kontrast */
+  --text: #2a1b3d; /* mörk plommon */
+  --muted: #8b6aa8; /* mjuk lila */
+  --accent: #ff4db8; /* stark hallonrosa accent */
+  --border: #f6d6ff; /* mild lila kant */
+  --btn: #7c90ff; /* klar pastell-blå knapp */
+  --btnText: #ffffff; /* vit knapptext */
 }
 
 /* Layout/typografi */
@@ -60,8 +63,8 @@ body {
   z-index: 50;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
   background: linear-gradient(180deg, var(--card), transparent);
 }
 .burger {
@@ -96,10 +99,6 @@ body {
 .burger span::after {
   top: 6px;
 }
-.title {
-  font-size: 1.25rem;
-  font-weight: 700;
-}
 .grow {
   flex: 1;
 }
@@ -121,7 +120,7 @@ body {
   cursor: pointer;
 }
 .btn.small {
-  padding: 0.4rem 0.7rem;
+  padding: 0.35rem 0.6rem;
   font-size: 0.85rem;
 }
 .btn.secondary {
@@ -129,41 +128,33 @@ body {
   color: var(--text);
   border: 1px solid var(--border);
 }
-.top-actions {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  margin-right: 0.5rem;
+
+/* Hero (första sidan) */
+.hero {
+  background: color-mix(in oklab, var(--card) 85%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 2rem 1.2rem;
+  text-align: center;
+}
+.hero h1 {
+  margin: 0 0 0.25rem;
+  font-size: 2rem;
+}
+.hero p {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+.bigbtn {
+  font-size: 1.05rem;
+  padding: 0.8rem 1.2rem;
 }
 
-/* Kategorirad */
-.catbar {
-  position: sticky;
-  top: 56px;
-  z-index: 40;
-  display: flex;
-  gap: 0.5rem;
-  overflow: auto;
-  padding: 0.5rem 1rem;
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklab, var(--card) 75%, transparent),
-    transparent
-  );
-}
-.catbtn {
-  flex: 0 0 auto;
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--text);
-  padding: 0.45rem 0.7rem;
-  border-radius: 9999px;
-  cursor: pointer;
-  font-size: 0.9rem;
-}
-.catbtn.active {
-  background: color-mix(in oklab, var(--accent) 25%, var(--card));
-  border-color: var(--accent);
+/* Senaste */
+.recent h2 {
+  margin: 0.25rem 0 0.25rem 0.25rem;
+  font-size: 1.1rem;
+  color: var(--muted);
 }
 
 /* Formulär */
@@ -349,6 +340,11 @@ textarea {
   border-color: var(--accent);
   background: color-mix(in oklab, var(--accent) 15%, var(--card));
 }
+.menu-section h4 {
+  margin: 0.5rem 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
 
 /* Detaljvy */
 dialog {
@@ -460,14 +456,12 @@ dialog {
   font-size: 0.75rem;
 }
 
-/* Danger-stil till Ta bort-knappen */
-.btn.danger {
-  background: #b00020;
-  color: #fff;
-  border: none;
-}
-.btn.secondary.danger {
-  background: transparent;
-  color: #b00020;
-  border-color: #b00020;
+/* Verktygsrad under korten */
+.tools {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.75rem;
 }
