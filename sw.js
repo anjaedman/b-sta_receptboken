@@ -1,5 +1,5 @@
 // Enkel cache för offline/PWA
-const CACHE_NAME = 'baste-recepten-v13'; // bumpa när du uppdaterar filer
+const CACHE_NAME = 'baste-recepten-v14'; // bumpa när du uppdaterar filer
 const CORE_ASSETS = [
     './',
     './index.html',
