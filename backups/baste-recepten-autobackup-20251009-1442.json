@@ -1,0 +1,72 @@
+{
+  "recipes": [
+    {
+      "id": "178d6dc7-6532-444d-be3b-c0604e737354",
+      "title": "Pepparkaksdeg utan \"socker\"",
+      "cat": "Jul",
+      "fav": true,
+      "images": [
+        "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20800%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23203228%22%2F%3E%3Ctext%20x%3D%22400%22%20y%3D%22300%22%20fill%3D%22%23cfe9dd%22%20font-family%3D%22Segoe%20UI%2C%20Arial%22%20text-anchor%3D%22middle%22%20font-size%3D%2242%22%20dy%3D%22.35em%22%3EIngen%20bild%3C%2Ftext%3E%3C%2Fsvg%3E"
+      ],
+      "tags": [
+        "jul",
+        "keto",
+        "sockerfri",
+        "pepparkakor"
+      ],
+      "ings": [
+        "100 g smör",
+        "1 dl sötning (t.ex. erytritol/stevia-blandning eller Sukrin Gold)",
+        "1 msk pepparkakskryddor (kanel, ingefära, nejlika, kardemumma)",
+        "1 ägg",
+        "4 dl mandelmjöl",
+        "1 dl kokosmjöl",
+        "1 tsk bakpulver",
+        "1 krm salt"
+      ],
+      "inst": "1. Smält smör, sötning och kryddor i kastrull. Låt svalna något.\n2. Vispa ner ägget.\n3. Blanda torra ingredienser separat.\n4. Rör ihop allt till en deg.\n5. Vila i kyl minst 1 timme (gärna över natt).\n6. Kavla ut mellan bakplåtspapper, stansa figurer.\n7. Grädda 8–10 min i 175°C. Låt svalna helt för krisp.",
+      "createdAt": 1760013306617
+    },
+    {
+      "id": "b74e211a-e187-49b7-a834-2d368275d4f4",
+      "title": "Pepparkaksdeg utan \"socker\"",
+      "cat": "keto",
+      "fav": false,
+      "images": [
+        "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20800%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23203228%22%2F%3E%3Ctext%20x%3D%22400%22%20y%3D%22300%22%20fill%3D%22%23cfe9dd%22%20font-family%3D%22Segoe%20UI%2C%20Arial%22%20text-anchor%3D%22middle%22%20font-size%3D%2242%22%20dy%3D%22.35em%22%3EIngen%20bild%3C%2Ftext%3E%3C%2Fsvg%3E"
+      ],
+      "tags": [
+        "jul",
+        "keto",
+        "sockerfri",
+        "pepparkakor"
+      ],
+      "ings": [
+        "100 g smör",
+        "1 dl sötning (t.ex. erytritol/stevia-blandning eller Sukrin Gold)",
+        "1 msk pepparkakskryddor (kanel, ingefära, nejlika, kardemumma)",
+        "1 ägg",
+        "4 dl mandelmjöl",
+        "1 dl kokosmjöl",
+        "1 tsk bakpulver",
+        "1 krm salt"
+      ],
+      "inst": "1. Smält smör, sötning och kryddor i kastrull. Låt svalna något.\n2. Vispa ner ägget.\n3. Blanda torra ingredienser separat.\n4. Rör ihop allt till en deg.\n5. Vila i kyl minst 1 timme (gärna över natt).\n6. Kavla ut mellan bakplåtspapper, stansa figurer.\n7. Grädda 8–10 min i 175°C. Låt svalna helt för krisp.",
+      "createdAt": 1760013306617
+    },
+    {
+      "id": "f6773c33-ea8f-4815-910f-05c7e363a95a",
+      "title": "Torkade apelsiner son sätts i krans",
+      "cat": "Jul",
+      "fav": false,
+      "images": [
+        "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20800%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23203228%22%2F%3E%3Ctext%20x%3D%22400%22%20y%3D%22300%22%20fill%3D%22%23cfe9dd%22%20font-family%3D%22Segoe%20UI%2C%20Arial%22%20text-anchor%3D%22middle%22%20font-size%3D%2242%22%20dy%3D%22.35em%22%3EIngen%20bild%3C%2Ftext%3E%3C%2Fsvg%3E"
+      ],
+      "ings": [],
+      "inst": "",
+      "tags": [],
+      "createdAt": 1760013346773
+    }
+  ],
+  "theme": "theme-morkgron"
+}

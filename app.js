@@ -27,16 +27,90 @@ function uuidv4() {
 }
 var genId = (window.crypto && window.crypto.randomUUID) ? function () { return window.crypto.randomUUID(); } : uuidv4;
 
-// Lagring
+// ---- Lagring med migration & kvot-hantering ----
 var store = {
-    key: 'baste-recepten.v4',
-    get: function () {
-        try { return JSON.parse(localStorage.getItem(this.key)) || { recipes: [], theme: 'theme-morkgron' }; }
-        catch (e) { return { recipes: [], theme: 'theme-morkgron' }; }
+    key: 'baste-recepten.v4', // behåll denna, migration hämtar från äldre nycklar
+
+    safeParse: function (raw) {
+        try { return JSON.parse(raw); } catch (e) { return null; }
     },
-    set: function (d) { localStorage.setItem(this.key, JSON.stringify(d)); }
+
+    get: function () {
+        // 1) Läs aktuell nyckel
+        var curr = this.safeParse(localStorage.getItem(this.key));
+        if (!curr || !curr.recipes) curr = { recipes: [], theme: 'theme-morkgron' };
+
+        // 2) MIGRERA från gamla nycklar (t.ex. v1, v2, v3 eller ”baste-recepten”)
+        var merged = false;
+        for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (!k) continue;
+            if (k.startsWith('baste-recepten') && k !== this.key) {
+                var oldData = this.safeParse(localStorage.getItem(k));
+                if (oldData && Array.isArray(oldData.recipes)) {
+                    var have = new Set(curr.recipes.map(function (r) { return r.id; }));
+                    var add = oldData.recipes.filter(function (r) { return r && r.id && !have.has(r.id); });
+                    if (add.length) {
+                        curr.recipes = curr.recipes.concat(add);
+                        merged = true;
+                    }
+                    if (!curr.theme && oldData.theme) {
+                        curr.theme = oldData.theme;
+                        merged = true;
+                    }
+                }
+            }
+        }
+
+        // 3) Spara tillbaka om vi slog ihop något + rensa gamla nycklar
+        if (merged) {
+            try {
+                localStorage.setItem(this.key, JSON.stringify(curr));
+                for (var j = localStorage.length - 1; j >= 0; j--) {
+                    var kk = localStorage.key(j);
+                    if (kk && kk.startsWith('baste-recepten') && kk !== this.key) {
+                        try { localStorage.removeItem(kk); } catch (e) { }
+                    }
+                }
+            } catch (e) {
+                console.warn('Kunde inte spara sammanslagen data:', e);
+            }
+        }
+
+        return curr;
+    },
+
+    set: function (d) {
+        try {
+            localStorage.setItem(this.key, JSON.stringify(d));
+        } catch (e) {
+            console.error('Misslyckades att spara till localStorage:', e);
+
+            var data = JSON.stringify(d, null, 2);
+            var blob = new Blob([data], { type: 'application/json' });
+            var url = URL.createObjectURL(blob);
+
+            var msg = 'Lagringsutrymmet i webbläsaren verkar vara fullt.\n\n' +
+                'Tips:\n' +
+                '• Exportera dina recept nu (en fil laddas ned).\n' +
+                '• Radera stora/överflödiga bilder eller recept.\n' +
+                '• Starta om webbläsaren och importera filen igen.\n\n' +
+                'Jag laddar ner en säkerhetskopia åt dig nu.';
+
+            try { alert(msg); } catch (_) { }
+            var a = document.createElement('a');
+            a.href = url;
+            var dts = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+            a.download = 'baste-recepten-NÖD-EXPORT-' + dts + '.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+        }
+    }
 };
 
+// Läs in DB efter migration
 var DB = store.get();
 var currentCat = 'Hem';
 var wakeLock = null;
@@ -81,7 +155,7 @@ function openOrDownloadBlob(blob, filename) {
     setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
 }
 
-// Skala ned bilder innan de sparas (komprimering)
+// Skala ned bilder innan de sparas (komprimering för nya uppladdningar)
 function readFilesAsDataURLs(files) {
     var MAX_SIDE = 1600;
     var QUALITY = 0.85;
@@ -99,9 +173,7 @@ function readFilesAsDataURLs(files) {
                     canvas.width = tw; canvas.height = th;
                     var ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, tw, th);
-                    var likelyAlpha = /png|webp/i.test(file.type);
-                    var mime = likelyAlpha ? 'image/png' : 'image/jpeg';
-                    var dataUrl = canvas.toDataURL(mime, QUALITY);
+                    var dataUrl = canvas.toDataURL('image/jpeg', QUALITY);
                     resolve(dataUrl);
                 };
                 img.src = fr.result;
@@ -227,6 +299,113 @@ document.addEventListener('visibilitychange', function () {
 }, { once: true });
 /* ===== /Auto-backup ===== */
 
+// >>>>>>>>>>> OPTIMERA LAGRING (NY FUNKTION) <<<<<<<<<<
+function bytesOfDataURL(u) { return Math.ceil((u.length - (u.indexOf(',') + 1)) * 3 / 4); }
+function humanBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1024 / 1024).toFixed(1) + ' MB';
+}
+function resizeDataUrl(dataUrl, maxSide, quality) {
+    return new Promise(function (resolve) {
+        try {
+            var img = new Image();
+            img.onload = function () {
+                var w = img.naturalWidth, h = img.naturalHeight;
+                var scale = Math.min(1, maxSide / Math.max(w, h));
+                var tw = Math.max(1, Math.round(w * scale));
+                var th = Math.max(1, Math.round(h * scale));
+                var canvas = document.createElement('canvas');
+                canvas.width = tw; canvas.height = th;
+                var ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, tw, th);
+                // Spara som JPEG för bästa komprimering av foton
+                var out = canvas.toDataURL('image/jpeg', quality);
+                resolve(out);
+            };
+            img.onerror = function () { resolve(null); };
+            img.src = dataUrl;
+        } catch (e) { resolve(null); }
+    });
+}
+async function optimizeAllImages() {
+    var btn = el('#optimizeBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Optimerar...'; }
+
+    var MAX = 1280;
+    var Q = 0.82;
+    var totalBefore = 0, totalAfter = 0, changed = 0, scanned = 0;
+
+    for (var i = 0; i < DB.recipes.length; i++) {
+        var r = DB.recipes[i];
+        if (!r.images || !r.images.length) continue;
+        for (var j = 0; j < r.images.length; j++) {
+            var u = r.images[j];
+            if (!u || typeof u !== 'string' || !u.startsWith('data:')) continue;
+            scanned++;
+            var before = bytesOfDataURL(u);
+            totalBefore += before;
+            try {
+                var out = await resizeDataUrl(u, MAX, Q);
+                if (out && out.startsWith('data:')) {
+                    var after = bytesOfDataURL(out);
+                    // spara endast om bättre
+                    if (after < before) {
+                        r.images[j] = out;
+                        totalAfter += after;
+                        changed++;
+                    } else {
+                        totalAfter += before;
+                    }
+                } else {
+                    totalAfter += before;
+                }
+            } catch (e) {
+                totalAfter += before;
+            }
+            if (btn) btn.textContent = 'Optimerar... (' + (i + 1) + '/' + DB.recipes.length + ')';
+        }
+    }
+
+    if (changed > 0) store.set(DB);
+
+    var saved = Math.max(0, totalBefore - totalAfter);
+    if (btn) { btn.disabled = false; btn.textContent = 'Optimera lagring'; }
+    alert(
+        'Genomgång klar!\n\n' +
+        'Skannade bilder: ' + scanned + '\n' +
+        'Optimerade: ' + changed + '\n' +
+        'Före: ' + humanBytes(totalBefore) + '\n' +
+        'Efter: ' + humanBytes(totalAfter) + '\n' +
+        'Sparat: ' + humanBytes(saved)
+    );
+}
+// Lägg in knappen i verktygsraden om den saknas
+(function ensureOptimizeBtn() {
+    if (!el('#optimizeBtn')) {
+        var tools = el('#toolsWrap');
+        if (tools) {
+            var btn = document.createElement('button');
+            btn.id = 'optimizeBtn';
+            btn.className = 'btn small secondary';
+            btn.textContent = 'Optimera lagring';
+            btn.title = 'Minska storlek på sparade bilder';
+            tools.insertBefore(btn, tools.querySelector('p.hint') || null);
+        }
+    }
+    var optBtn = el('#optimizeBtn');
+    if (optBtn && !optBtn._bound) {
+        optBtn.addEventListener('click', function () {
+            if (!DB.recipes.length) { alert('Inga recept att optimera ännu.'); return; }
+            var ok = confirm('Optimera alla sparade bilder?\n\nBilder skalas till max 1280 px och komprimeras. Originalen ersätts om resultatet blir mindre.');
+            if (!ok) return;
+            optimizeAllImages();
+        });
+        optBtn._bound = true;
+    }
+})();
+// >>>>>>>>>>> /OPTIMERA LAGRING <<<<<<<<<<
+
 // Formkategori-chips
 var selectedFormCat = null;
 function renderCatChips() {
@@ -321,7 +500,7 @@ if (saveBtn) {
             store.set(DB);
             clearForm();
 
-            // <-- Tillbaka till startsidan efter sparat
+            // Tillbaka till startsidan efter sparat
             routeTo('Hem');
             try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { }
         });
