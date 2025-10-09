@@ -48,17 +48,40 @@ function parseTags(s) { return String(s || '').split(',').map(function (x) { ret
 function lines(t) { return String(t || '').split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean); }
 function escapeHtml(s) {
     return String(s || '').replace(/[&<>"']/g, function (m) {
-        return {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#39;'
-        }[m];
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
     });
 }
 
-// Skalar ned bilder innan de sparas som data-URL (🔄 ersätter din tidigare readFilesAsDataURLs)
+// 🔧 data:URL → Blob (för att öppna/dela bilder robust)
+function dataURLtoBlob(dataUrl) {
+    try {
+        var parts = dataUrl.split(',');
+        var mime = (parts[0].match(/:(.*?);/) || [, 'application/octet-stream'])[1];
+        var bstr = atob(parts[1]);
+        var n = bstr.length;
+        var u8 = new Uint8Array(n);
+        while (n--) u8[n] = bstr.charCodeAt(n);
+        return new Blob([u8], { type: mime });
+    } catch (e) {
+        return null;
+    }
+}
+// 🔧 öppna eller ladda ner en Blob
+function openOrDownloadBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var win = window.open(url, '_blank', 'noopener');
+    if (!win) {
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename || 'fil';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    }
+    setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+}
+
+// Skala ned bilder innan de sparas som data-URL
 function readFilesAsDataURLs(files) {
     var MAX_SIDE = 1600;  // max bredd/höjd i px
     var QUALITY = 0.85;   // JPEG-kvalitet
@@ -72,13 +95,10 @@ function readFilesAsDataURLs(files) {
                     var w = img.naturalWidth, h = img.naturalHeight;
                     var scale = Math.min(1, MAX_SIDE / Math.max(w, h));
                     var tw = Math.round(w * scale), th = Math.round(h * scale);
-
                     var canvas = document.createElement('canvas');
                     canvas.width = tw; canvas.height = th;
                     var ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, tw, th);
-
-                    // PNG om ursprung troligen har alfa (png/webp), annars JPEG
                     var likelyAlpha = /png|webp/i.test(file.type);
                     var mime = likelyAlpha ? 'image/png' : 'image/jpeg';
                     var dataUrl = canvas.toDataURL(mime, QUALITY);
@@ -99,7 +119,6 @@ function readFilesAsDataURLs(files) {
                 out.push(u);
                 next();
             }).catch(function () {
-                // Fallback: om något gick fel – läs originalfilen rakt av
                 var fr = new FileReader();
                 fr.onload = function () { out.push(fr.result); next(); };
                 fr.readAsDataURL(files[i - 1]);
@@ -130,7 +149,6 @@ function show(sel, visible) {
             });
         }
     }
-    // drawer finns direkt, men om menyn renderas lite senare – bind igen
     bindThemeSel();
     setTimeout(bindThemeSel, 200);
 })();
@@ -176,7 +194,7 @@ if (importBtn && importFile) {
     });
 }
 
-/* ===== 🔒 Auto-backup när appen stängs (nytt) ===== */
+/* ===== 🔒 Auto-backup när appen stängs ===== */
 function backupFilename(prefix) {
     var d = new Date();
     var pad = function (n) { return String(n).padStart(2, '0'); };
@@ -184,7 +202,6 @@ function backupFilename(prefix) {
         d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' +
         pad(d.getHours()) + pad(d.getMinutes()) + '.json';
 }
-
 function tryAutoExport() {
     try {
         var data = JSON.stringify(DB, null, 2);
@@ -196,9 +213,7 @@ function tryAutoExport() {
         document.body.appendChild(a);
         a.click();
         setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-    } catch (e) {
-        // tyst — vissa browsers kan blocka
-    }
+    } catch (e) { }
 }
 var _autoExported = false;
 function scheduleAutoExport() {
@@ -230,7 +245,7 @@ function renderCatChips() {
 }
 renderCatChips();
 
-// Drawer (hamburgermeny) – kategorier och vyer endast här
+// Drawer (hamburgermeny)
 var drawer = el('#drawer');
 var openDrawerBtn = el('#openDrawer');
 if (openDrawerBtn) openDrawerBtn.addEventListener('click', function () { openDrawer(); });
@@ -244,8 +259,6 @@ function closeDrawer() { if (!drawer) return; drawer.classList.remove('open'); d
 function renderCatList() {
     var wrap = el('#catList'); if (!wrap) return;
     wrap.innerHTML = '';
-
-    // Först huvudvyer
     ['Hem', 'nytt', 'favoriter', 'sök'].forEach(function (c) {
         var d = document.createElement('div');
         d.className = 'cat' + (c === currentCat ? ' active' : '');
@@ -253,8 +266,6 @@ function renderCatList() {
         d.addEventListener('click', function () { closeDrawer(); routeTo(c); });
         wrap.appendChild(d);
     });
-
-    // Kategorier
     var hr = document.createElement('hr'); hr.style.borderColor = 'var(--border)'; wrap.appendChild(hr);
     LIST_CATS.forEach(function (c) {
         var d = document.createElement('div');
@@ -309,7 +320,7 @@ if (saveBtn) {
             DB.recipes.push(rec);
             store.set(DB);
             clearForm();
-            routeTo('Hem'); // åter till startsidan
+            routeTo('Hem');
         });
     });
 }
@@ -335,12 +346,9 @@ function renderCards(list) {
     list.forEach(function (r) {
         var c = document.createElement('article'); c.className = 'card';
         var img = document.createElement('img'); img.className = 'thumb'; img.alt = r.title; img.loading = 'lazy'; img.src = (r.images && r.images[0]) || DEFAULT_IMG; c.appendChild(img);
-
         var body = document.createElement('div'); body.className = 'card-body';
         var row = document.createElement('div'); row.className = 'title-row';
-
         var h = document.createElement('h3'); h.textContent = r.title; row.appendChild(h);
-
         var fav = document.createElement('div'); fav.className = 'fav';
         var favBtn = document.createElement('button'); favBtn.textContent = r.fav ? '★' : '☆';
         favBtn.addEventListener('click', function (e) {
@@ -348,11 +356,8 @@ function renderCards(list) {
             if (currentCat === 'favoriter') routeTo('favoriter');
         });
         fav.appendChild(favBtn); row.appendChild(fav);
-
         body.appendChild(row);
-
         var badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = r.cat; body.appendChild(badge);
-
         c.appendChild(body);
         c.addEventListener('click', function () { openDetail(r.id); });
         cards.appendChild(c);
@@ -419,8 +424,6 @@ function renderRecent() {
 // Routing
 function routeTo(cat) {
     currentCat = cat;
-
-    // visa/dölj sektioner
     var isHome = (cat === 'Hem');
     var isNew = (cat === 'nytt');
     var isFav = (cat === 'favoriter');
@@ -431,7 +434,6 @@ function routeTo(cat) {
     show('#addView', isNew);
     show('#searchBar', isSearch);
 
-    // huvudlistor av/på
     show('#cards', false);
     show('#alphaList', false);
     show('#empty', false);
@@ -445,16 +447,12 @@ function routeTo(cat) {
     } else if (isSearch) {
         renderCards(list);
     } else if (isNew) {
-        // enbart formulär
+        // bara formuläret
     } else {
-        // kategori A–Ö
         renderAlphaList(list.filter(function (r) { return r.cat === cat; }));
     }
 
-    // alltid visa verktygsrad under kortsektionerna (den ligger efter cards/alpha i DOM)
     show('#toolsWrap', true);
-
-    // Stäng meny om öppen
     closeDrawer();
 }
 
@@ -542,9 +540,35 @@ function openDetail(id) {
 
 var closeDetailBtn = el('#closeDetail');
 if (closeDetailBtn) closeDetailBtn.addEventListener('click', function () { if (detail && detail.close) detail.close(); releaseWakeLock(); });
+
+// ✔️ Öppna bild: robust för data:-URL och popup-blockers
 var openImageBtn = el('#openImage');
-if (openImageBtn) openImageBtn.addEventListener('click', function () { if (detailMain && detailMain.src) window.open(detailMain.src, '_blank'); });
+if (openImageBtn) {
+    openImageBtn.addEventListener('click', function () {
+        var src = detailMain && detailMain.src;
+        if (!src) return;
+        if (src.startsWith('data:')) {
+            var blob = dataURLtoBlob(src);
+            if (blob) {
+                var ext = (blob.type === 'image/png') ? '.png' :
+                    (blob.type === 'image/jpeg') ? '.jpg' :
+                        (blob.type === 'image/webp') ? '.webp' : '';
+                openOrDownloadBlob(blob, (detailTitle && detailTitle.textContent || 'bild') + ext);
+                return;
+            }
+        }
+        var win = window.open(src, '_blank', 'noopener');
+        if (!win) {
+            var a = document.createElement('a');
+            a.href = src;
+            a.download = (detailTitle && detailTitle.textContent) || 'bild';
+            a.click();
+        }
+    });
+}
 if (detail) detail.addEventListener('close', function () { releaseWakeLock(); });
+
+// ⭐ Favorit-toggling i detail
 if (detailFav) {
     detailFav.addEventListener('click', function () {
         var r = DB.recipes.find(function (x) { return x.id === openedId; }); if (!r) return;
@@ -554,16 +578,56 @@ if (detailFav) {
         if (currentCat === 'favoriter') routeTo('favoriter');
     });
 }
+
+// ✔️ Dela: försök bild + full text (Web Share L2), annars smart fallback
 var shareBtn = el('#shareBtn');
-if (shareBtn) shareBtn.addEventListener('click', function () {
-    var r = DB.recipes.find(function (x) { return x.id === openedId; }); if (!r) return;
-    var text = r.title + '\nKategori: ' + r.cat
-        + (r.tags && r.tags.length ? '\nTaggar: ' + r.tags.join(', ') : '')
-        + (r.ings && r.ings.length ? '\n\nIngredienser:\n- ' + r.ings.join('\n- ') : '')
-        + (r.inst ? '\n\nInstruktioner:\n' + r.inst : '');
-    if (navigator.share) { navigator.share({ title: r.title, text: text }).catch(function () { }); }
-    else { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text); alert('Receptet kopierades till urklipp.'); } }
-});
+if (shareBtn) {
+    shareBtn.addEventListener('click', function () {
+        var r = DB.recipes.find(function (x) { return x.id === openedId; });
+        if (!r) return;
+
+        var text = r.title + '\nKategori: ' + r.cat
+            + (r.tags && r.tags.length ? '\nTaggar: ' + r.tags.join(', ') : '')
+            + (r.ings && r.ings.length ? '\n\nIngredienser:\n- ' + r.ings.join('\n- ') : '')
+            + (r.inst ? '\n\nInstruktioner:\n' + r.inst : '');
+
+        var firstImg = (r.images && r.images[0]) || '';
+        var canAttachImage = firstImg && firstImg.startsWith('data:') && firstImg.length < 15 * 1024 * 1024;
+
+        try {
+            if (navigator.canShare && canAttachImage) {
+                var blob = dataURLtoBlob(firstImg);
+                if (blob) {
+                    var fileExt = (blob.type === 'image/png') ? '.png' :
+                        (blob.type === 'image/webp') ? '.webp' : '.jpg';
+                    var file = new File([blob], (r.title || 'recept') + fileExt, { type: blob.type || 'image/jpeg' });
+                    if (navigator.canShare({ files: [file] })) {
+                        navigator.share({ title: r.title, text: text, files: [file] }).catch(function () { });
+                        return;
+                    }
+                }
+            }
+        } catch (e) { /* fortsätt till fallback */ }
+
+        if (navigator.share) {
+            navigator.share({ title: r.title, text: text }).catch(function () { });
+            return;
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () {
+                alert('Receptet kopierades till urklipp (text). Klistra in i din app/chatt.');
+            }).catch(function () {
+                var blob = new Blob([text], { type: 'text/plain' });
+                openOrDownloadBlob(blob, (r.title || 'recept') + '.txt');
+            });
+        } else {
+            var blob = new Blob([text], { type: 'text/plain' });
+            openOrDownloadBlob(blob, (r.title || 'recept') + '.txt');
+        }
+    });
+}
+
 var printBtn = el('#printBtn');
 if (printBtn) printBtn.addEventListener('click', function () { window.print(); });
 
