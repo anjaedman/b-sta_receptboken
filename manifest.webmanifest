@@ -1,6 +1,6 @@
 {
-  "name": "Bäste recepten",
-  "short_name": "Recept",
+  "name": "Random Recept",
+  "short_name": "Random Recept",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#0f1a15",
