@@ -29,7 +29,7 @@ var genId = (window.crypto && window.crypto.randomUUID) ? function () { return w
 
 // Lagring
 var store = {
-    key: 'baste-recepten.v4', // bumpad pga layoutförändringar
+    key: 'baste-recepten.v4',
     get: function () {
         try { return JSON.parse(localStorage.getItem(this.key)) || { recipes: [], theme: 'theme-morkgron' }; }
         catch (e) { return { recipes: [], theme: 'theme-morkgron' }; }
@@ -52,7 +52,7 @@ function escapeHtml(s) {
     });
 }
 
-// 🔧 data:URL → Blob (för att öppna/dela bilder robust)
+// data:URL → Blob
 function dataURLtoBlob(dataUrl) {
     try {
         var parts = dataUrl.split(',');
@@ -66,7 +66,7 @@ function dataURLtoBlob(dataUrl) {
         return null;
     }
 }
-// 🔧 öppna eller ladda ner en Blob
+// öppna/ladda ner Blob
 function openOrDownloadBlob(blob, filename) {
     var url = URL.createObjectURL(blob);
     var win = window.open(url, '_blank', 'noopener');
@@ -81,10 +81,10 @@ function openOrDownloadBlob(blob, filename) {
     setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
 }
 
-// Skala ned bilder innan de sparas som data-URL
+// Skala ned bilder innan de sparas
 function readFilesAsDataURLs(files) {
-    var MAX_SIDE = 1600;  // max bredd/höjd i px
-    var QUALITY = 0.85;   // JPEG-kvalitet
+    var MAX_SIDE = 1600;
+    var QUALITY = 0.85;
 
     function loadAndResize(file) {
         return new Promise(function (resolve) {
@@ -133,7 +133,7 @@ function show(sel, visible) {
     n.style.display = visible ? '' : 'none';
 }
 
-// Tema init (nu i menyn)
+// Tema init
 (function () {
     var body = document.body;
     body.classList.remove('theme-morkgron', 'theme-klassisk', 'theme-pastell');
@@ -194,7 +194,7 @@ if (importBtn && importFile) {
     });
 }
 
-/* ===== 🔒 Auto-backup när appen stängs ===== */
+/* ===== Auto-backup vid stängning ===== */
 function backupFilename(prefix) {
     var d = new Date();
     var pad = function (n) { return String(n).padStart(2, '0'); };
@@ -245,7 +245,7 @@ function renderCatChips() {
 }
 renderCatChips();
 
-// Drawer (hamburgermeny)
+// Drawer
 var drawer = el('#drawer');
 var openDrawerBtn = el('#openDrawer');
 if (openDrawerBtn) openDrawerBtn.addEventListener('click', function () { openDrawer(); });
@@ -327,11 +327,17 @@ if (saveBtn) {
 var clearBtn = el('#clearBtn');
 if (clearBtn) clearBtn.addEventListener('click', function () { clearForm(); });
 function clearForm() {
-    ['#titleInput', '#ingTextarea', '#instTextarea', '#tagInput'].forEach(function (id) { var n = el(id); if (n) n.value = ''; });
-    var fi = el('#imageInput'); if (fi) value = '';
-    var fi2 = el('#imageInput'); if (fi2) fi2.value = '';
-    formFav = false; if (favToggle) { favToggle.classList.remove('active'); favToggle.textContent = '☆ Lägg som favorit'; }
-    selectedFormCat = null; renderCatChips();
+    ['#titleInput', '#ingTextarea', '#instTextarea', '#tagInput'].forEach(function (id) {
+        var n = el(id); if (n) n.value = '';
+    });
+    var fi = el('#imageInput'); if (fi) fi.value = '';
+    formFav = false;
+    if (favToggle) {
+        favToggle.classList.remove('active');
+        favToggle.textContent = '☆ Lägg som favorit';
+    }
+    selectedFormCat = null;
+    renderCatChips();
 }
 
 // Render: kort
@@ -542,7 +548,7 @@ function openDetail(id) {
 var closeDetailBtn = el('#closeDetail');
 if (closeDetailBtn) closeDetailBtn.addEventListener('click', function () { if (detail && detail.close) detail.close(); releaseWakeLock(); });
 
-// ✔️ Öppna bild: robust för data:-URL och popup-blockers
+// Öppna bild robust
 var openImageBtn = el('#openImage');
 if (openImageBtn) {
     openImageBtn.addEventListener('click', function () {
@@ -569,7 +575,7 @@ if (openImageBtn) {
 }
 if (detail) detail.addEventListener('close', function () { releaseWakeLock(); });
 
-// ⭐ Favorit-toggling i detail
+// Favorit-toggling
 if (detailFav) {
     detailFav.addEventListener('click', function () {
         var r = DB.recipes.find(function (x) { return x.id === openedId; }); if (!r) return;
@@ -580,19 +586,64 @@ if (detailFav) {
     });
 }
 
-// ---- Dela som bild (NY) ----
-// Skapa radbrytningar som får plats inom maxWidth
+// ---- Dela som bild ----
+// DOM → fallback-data
+function getRecipeFromDetailView() {
+    var title = (el('#detailTitle') && el('#detailTitle').textContent) || '';
+    var cat = (el('#detailCat') && el('#detailCat').textContent) || '';
+    var tags = [];
+    var tagsWrap = el('#detailTagsWrap');
+    if (tagsWrap) {
+        tags = Array.prototype.map.call(tagsWrap.querySelectorAll('.tag'), function (t) {
+            return (t.textContent || '').replace(/^#/, '').trim();
+        }).filter(Boolean);
+    }
+    var ings = [];
+    var ingsUl = el('#detailIngs');
+    if (ingsUl) {
+        ings = Array.prototype.map.call(ingsUl.querySelectorAll('li'), function (li) {
+            return (li.textContent || '').trim();
+        }).filter(Boolean);
+    }
+    var inst = (el('#detailInst') && el('#detailInst').textContent) || '';
+    return { title: title, cat: cat, tags: tags, ings: ings, inst: inst };
+}
+function mergeRecipeWithDOM(r) {
+    var dom = getRecipeFromDetailView();
+    return {
+        title: r.title || dom.title,
+        cat: r.cat || dom.cat,
+        tags: (r.tags && r.tags.length) ? r.tags : dom.tags,
+        ings: (r.ings && r.ings.length) ? r.ings : dom.ings,
+        inst: (r.inst && r.inst.trim()) ? r.inst : dom.inst
+    };
+}
+// Radbrytare
 function wrapText(ctx, text, maxWidth, lineHeight, font) {
     if (font) ctx.font = font;
     var words = String(text || '').split(/\s+/);
     var lines = [];
     var line = '';
     for (var i = 0; i < words.length; i++) {
-        var test = line ? (line + ' ' + words[i]) : words[i];
-        var w = ctx.measureText(test).width;
-        if (w > maxWidth && line) {
+        var w = words[i];
+        var test = line ? (line + ' ' + w) : w;
+        if (ctx.measureText(test).width > maxWidth && line) {
             lines.push(line);
-            line = words[i];
+            if (ctx.measureText(w).width > maxWidth) {
+                var part = '';
+                for (var j = 0; j < w.length; j++) {
+                    var t = part + w[j];
+                    if (ctx.measureText(t).width > maxWidth) {
+                        lines.push(part);
+                        part = w[j];
+                    } else {
+                        part = t;
+                    }
+                }
+                line = part;
+            } else {
+                line = w;
+            }
         } else {
             line = test;
         }
@@ -600,54 +651,43 @@ function wrapText(ctx, text, maxWidth, lineHeight, font) {
     if (line) lines.push(line);
     return lines;
 }
-
 function renderRecipeToCanvas(r) {
-    // Hämta färger från aktuellt tema
     var cs = getComputedStyle(document.body);
     var bg = cs.getPropertyValue('--card').trim() || '#ffffff';
     var fg = cs.getPropertyValue('--text').trim() || '#111111';
     var muted = cs.getPropertyValue('--muted').trim() || '#666666';
     var accent = cs.getPropertyValue('--accent').trim() || '#2c6e49';
 
-    // Layout
     var DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-    var W = 1080;             // px (CSS)
-    var PAD = 48;             // px (CSS)
+    var W = 1080;
+    var PAD = 48;
     var contentW = W - PAD * 2;
 
-    // Typsnitt
     var titleFont = '700 48px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
     var h3Font = '600 30px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
     var bodyFont = '400 28px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
     var smallFont = '400 22px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
     var lh = 38, lhSmall = 30;
 
-    // Canvas för mätning
     var c1 = document.createElement('canvas');
     var ctx = c1.getContext('2d');
-    ctx.font = titleFont;
 
     var y = PAD;
 
-    // Title
+    ctx.font = titleFont;
     var titleLines = wrapText(ctx, r.title || '(Utan titel)', contentW, lh, titleFont);
-    var titleHeight = titleLines.length * lh + 8;
-    y += titleHeight;
+    y += titleLines.length * lh + 8;
 
-    // Kategori & taggar
     ctx.font = smallFont;
     var catLine = 'Kategori: ' + (r.cat || '–');
-    var catHeight = lhSmall + 8;
-    y += catHeight;
+    y += lhSmall + 8;
 
     var tagsText = (r.tags && r.tags.length) ? ('Taggar: ' + r.tags.join(', ')) : '';
     var tagLines = tagsText ? wrapText(ctx, tagsText, contentW, lhSmall, smallFont) : [];
-    var tagsHeight = tagLines.length ? (tagLines.length * lhSmall + 8) : 0;
-    y += tagsHeight;
+    y += tagLines.length ? (tagLines.length * lhSmall + 8) : 0;
 
-    // Ingredienser
     ctx.font = h3Font;
-    y += lh; // rubrikmarginal
+    y += lh;
     var ingsTitleH = lh;
     ctx.font = bodyFont;
     var ingLines = [];
@@ -659,7 +699,6 @@ function renderRecipeToCanvas(r) {
     var ingHeight = (r.ings && r.ings.length ? (ingsTitleH + ingLines.length * lh + 8) : 0);
     y += ingHeight;
 
-    // Instruktioner
     ctx.font = h3Font;
     var hasInst = !!(r.inst && r.inst.trim());
     var instTitleH = hasInst ? (lh + 8) : 0;
@@ -669,10 +708,8 @@ function renderRecipeToCanvas(r) {
     var instHeight = instLines.length * lh;
     y += instHeight;
 
-    // Bottenmarginal
     y += PAD;
 
-    // Riktiga canvas
     var H = y;
     var canvas = document.createElement('canvas');
     canvas.width = Math.round(W * DPR);
@@ -683,13 +720,11 @@ function renderRecipeToCanvas(r) {
     var c = canvas.getContext('2d');
     c.scale(DPR, DPR);
 
-    // Bakgrund
     c.fillStyle = bg || '#fff';
     c.fillRect(0, 0, W, H);
 
     var cursorY = PAD;
 
-    // Title
     c.fillStyle = fg;
     c.font = titleFont;
     titleLines.forEach(function (line) {
@@ -697,20 +732,17 @@ function renderRecipeToCanvas(r) {
         cursorY += lh;
     });
 
-    // Kategori
     c.font = smallFont;
     c.fillStyle = muted;
     c.fillText(catLine, PAD, cursorY);
     cursorY += lhSmall + 8;
 
-    // Taggar
     c.fillStyle = muted;
     tagLines.forEach(function (line) {
         c.fillText(line, PAD, cursorY);
         cursorY += lhSmall;
     });
 
-    // Ingredienser
     if (r.ings && r.ings.length) {
         cursorY += 8;
         c.font = h3Font;
@@ -726,7 +758,6 @@ function renderRecipeToCanvas(r) {
         });
     }
 
-    // Instruktioner
     if (hasInst) {
         cursorY += 8;
         c.font = h3Font;
@@ -744,7 +775,6 @@ function renderRecipeToCanvas(r) {
 
     return canvas;
 }
-
 function shareRecipeImage(r) {
     var canvas = renderRecipeToCanvas(r);
     return new Promise(function (resolve) {
@@ -755,7 +785,7 @@ function shareRecipeImage(r) {
     });
 }
 
-// ✔️ Dela: försök bild + full text (Web Share L2), annars smart fallback
+// Dela (text + ev. bild)
 var shareBtn = el('#shareBtn');
 if (shareBtn) {
     shareBtn.addEventListener('click', function () {
@@ -783,7 +813,7 @@ if (shareBtn) {
                     }
                 }
             }
-        } catch (e) { /* fortsätt till fallback */ }
+        } catch (e) { }
 
         if (navigator.share) {
             navigator.share({ title: r.title, text: text }).catch(function () { });
@@ -794,17 +824,17 @@ if (shareBtn) {
             navigator.clipboard.writeText(text).then(function () {
                 alert('Receptet kopierades till urklipp (text). Klistra in i din app/chatt.');
             }).catch(function () {
-                var blob = new Blob([text], { type: 'text/plain' });
-                openOrDownloadBlob(blob, (r.title || 'recept') + '.txt');
+                var blob2 = new Blob([text], { type: 'text/plain' });
+                openOrDownloadBlob(blob2, (r.title || 'recept') + '.txt');
             });
         } else {
-            var blob = new Blob([text], { type: 'text/plain' });
-            openOrDownloadBlob(blob, (r.title || 'recept') + '.txt');
+            var blob3 = new Blob([text], { type: 'text/plain' });
+            openOrDownloadBlob(blob3, (r.title || 'recept') + '.txt');
         }
     });
 }
 
-// ➕ Skapa “Dela som bild”-knapp dynamiskt om den saknas i HTML
+// Skapa “Dela som bild”-knapp om saknas
 (function ensureShareImageBtn() {
     if (!el('#shareImgBtn')) {
         var bars = all('.closebar .top-actions');
@@ -813,7 +843,6 @@ if (shareBtn) {
             btn.id = 'shareImgBtn';
             btn.className = 'btn secondary';
             btn.textContent = 'Dela som bild';
-            // Lägg den precis efter “Dela/Kopiera”
             var shareIndex = Array.prototype.findIndex.call(bars[0].children, function (c) { return c.id === 'shareBtn'; });
             if (shareIndex >= 0 && bars[0].children[shareIndex].nextSibling) {
                 bars[0].insertBefore(btn, bars[0].children[shareIndex].nextSibling);
@@ -824,19 +853,20 @@ if (shareBtn) {
     }
 })();
 
-// 🎨 Klick: Dela som bild
+// Klick: Dela som bild (bind nu)
 var shareImgBtn = el('#shareImgBtn');
 if (shareImgBtn) {
     shareImgBtn.addEventListener('click', function () {
-        var r = DB.recipes.find(function (x) { return x.id === openedId; });
-        if (!r) return;
+        var r0 = DB.recipes.find(function (x) { return x.id === openedId; });
+        if (!r0) return;
+        var r = mergeRecipeWithDOM(r0);
+
         shareRecipeImage(r).then(function (blob) {
             if (!blob) return;
             var file = new File([blob], (r.title || 'recept') + '.png', { type: 'image/png' });
             if (navigator.canShare && navigator.canShare({ files: [file] })) {
                 navigator.share({ title: r.title, files: [file] }).catch(function () { });
             } else {
-                // Ladda ner om delning ej stöds
                 openOrDownloadBlob(blob, (r.title || 'recept') + '.png');
             }
         });
@@ -872,7 +902,6 @@ function releaseWakeLock() { try { if (wakeLock && wakeLock.release) { wakeLock.
     routeTo('Hem');
 
     if (DB.recipes.length === 0) {
-        // Förifyllt recept: Pepparkaksdeg utan "socker" – Jul (fav) + keto
         var baseTags = ['jul', 'keto', 'sockerfri', 'pepparkakor'];
         var pepparkaksRecept = {
             id: genId(),
@@ -907,12 +936,13 @@ function releaseWakeLock() { try { if (wakeLock && wakeLock.release) { wakeLock.
         routeTo('Hem');
     }
 
-    // Om vi lade till knappen före dialogen fanns – bind igen nu
+    // ifall knappen skapades innan dialogen fanns – bind igen
     var shareImgBtn2 = el('#shareImgBtn');
     if (shareImgBtn2 && !shareImgBtn2._bound) {
         shareImgBtn2.addEventListener('click', function () {
-            var r = DB.recipes.find(function (x) { return x.id === openedId; });
-            if (!r) return;
+            var r0 = DB.recipes.find(function (x) { return x.id === openedId; });
+            if (!r0) return;
+            var r = mergeRecipeWithDOM(r0);
             shareRecipeImage(r).then(function (blob) {
                 if (!blob) return;
                 var file = new File([blob], (r.title || 'recept') + '.png', { type: 'image/png' });
