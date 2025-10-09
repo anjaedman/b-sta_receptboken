@@ -7,7 +7,7 @@
   "theme_color": "#1d3b2a",
   "lang": "sv-SE",
   "icons": [
-    { "src": "icons/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "icons/icon-512.png", "type": "image/png", "sizes": "192x192" },
     { "src": "icons/icon-512.png", "type": "image/png", "sizes": "512x512" }
   ]
 }
