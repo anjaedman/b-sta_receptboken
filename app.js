@@ -1,5 +1,3 @@
-
-
 // --- Konstanter ---
 var CATS = ['Hem', 'nytt', 'favoriter', 'sök', 'Jul', 'keto', 'kött', 'kyckling', 'fisk', 'färs', 'dessert', 'bröd', 'vegetariskt', 'godis', 'övrigt'];
 var LIST_CATS = CATS.filter(function (c) { return !['Hem', 'nytt', 'favoriter', 'sök'].includes(c); });
@@ -59,18 +57,57 @@ function escapeHtml(s) {
         }[m];
     });
 }
+
+// Skalar ned bilder innan de sparas som data-URL (🔄 ersätter din tidigare readFilesAsDataURLs)
 function readFilesAsDataURLs(files) {
+    var MAX_SIDE = 1600;  // max bredd/höjd i px
+    var QUALITY = 0.85;   // JPEG-kvalitet
+
+    function loadAndResize(file) {
+        return new Promise(function (resolve) {
+            var fr = new FileReader();
+            fr.onload = function () {
+                var img = new Image();
+                img.onload = function () {
+                    var w = img.naturalWidth, h = img.naturalHeight;
+                    var scale = Math.min(1, MAX_SIDE / Math.max(w, h));
+                    var tw = Math.round(w * scale), th = Math.round(h * scale);
+
+                    var canvas = document.createElement('canvas');
+                    canvas.width = tw; canvas.height = th;
+                    var ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, tw, th);
+
+                    // PNG om ursprung troligen har alfa (png/webp), annars JPEG
+                    var likelyAlpha = /png|webp/i.test(file.type);
+                    var mime = likelyAlpha ? 'image/png' : 'image/jpeg';
+                    var dataUrl = canvas.toDataURL(mime, QUALITY);
+                    resolve(dataUrl);
+                };
+                img.src = fr.result;
+            };
+            fr.readAsDataURL(file);
+        });
+    }
+
     return new Promise(function (res) {
         if (!files || !files.length) return res([]);
         var out = [], i = 0;
         (function next() {
             if (i >= files.length) return res(out);
-            var fr = new FileReader();
-            fr.onload = function () { out.push(fr.result); next(); };
-            fr.readAsDataURL(files[i++]);
+            loadAndResize(files[i++]).then(function (u) {
+                out.push(u);
+                next();
+            }).catch(function () {
+                // Fallback: om något gick fel – läs originalfilen rakt av
+                var fr = new FileReader();
+                fr.onload = function () { out.push(fr.result); next(); };
+                fr.readAsDataURL(files[i - 1]);
+            });
         })();
     });
 }
+
 function show(sel, visible) {
     var n = el(sel);
     if (!n) return;
@@ -138,6 +175,42 @@ if (importBtn && importFile) {
         reader.readAsText(f);
     });
 }
+
+/* ===== 🔒 Auto-backup när appen stängs (nytt) ===== */
+function backupFilename(prefix) {
+    var d = new Date();
+    var pad = function (n) { return String(n).padStart(2, '0'); };
+    return prefix + '-' +
+        d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' +
+        pad(d.getHours()) + pad(d.getMinutes()) + '.json';
+}
+
+function tryAutoExport() {
+    try {
+        var data = JSON.stringify(DB, null, 2);
+        var blob = new Blob([data], { type: 'application/json' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = backupFilename('baste-recepten-autobackup');
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    } catch (e) {
+        // tyst — vissa browsers kan blocka
+    }
+}
+var _autoExported = false;
+function scheduleAutoExport() {
+    if (_autoExported) return;
+    _autoExported = true;
+    tryAutoExport();
+}
+window.addEventListener('pagehide', scheduleAutoExport, { once: true });
+document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') scheduleAutoExport();
+}, { once: true });
+/* ===== /Auto-backup ===== */
 
 // Formkategori-chips
 var selectedFormCat = null;
