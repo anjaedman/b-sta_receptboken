@@ -8,6 +8,70 @@ var DEFAULT_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600"><rect width="100%" height="100%" fill="#203228"/><text x="400" y="300" fill="#cfe9dd" font-family="Segoe UI, Arial" text-anchor="middle" font-size="42" dy=".35em">Ingen bild</text></svg>'
 );
 
+
+// ==========================
+// Bildkomprimering: skala + WebP/JPEG
+// ==========================
+const IMG_MAX_W = 1600;       // maxbredd efter skalning
+const IMG_MAX_H = 1600;       // maxhöjd efter skalning
+const IMG_QUALITY = 0.82;     // 0–1 (WebP/JPEG)
+const PREFERRED_MIME = 'image/webp'; // faller tillbaka till image/jpeg om inte stöds
+
+function createCanvas(w, h) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    return c;
+}
+
+// Ladda en File/Blob till HTMLImageElement
+function loadImageFromFile(fileOrBlob) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(fileOrBlob);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = (e) => { URL.revokeObjectURL(url); reject(new Error('Kunde inte läsa bilden')); };
+        img.src = url;
+    });
+}
+
+// Skala proportionerligt så att varken bredd/höjd överstiger max
+function computeTargetSize(sw, sh, maxW, maxH) {
+    const scale = Math.min(1, maxW / sw, maxH / sh);
+    return { w: Math.max(1, Math.round(sw * scale)), h: Math.max(1, Math.round(sh * scale)) };
+}
+
+// Komprimera en File/Blob till WebP (om möjligt) annars JPEG, efter skalning
+async function compressImage(fileOrBlob, opts = {}) {
+    const maxW = opts.maxW || IMG_MAX_W;
+    const maxH = opts.maxH || IMG_MAX_H;
+    const quality = (typeof opts.quality === 'number') ? opts.quality : IMG_QUALITY;
+    const preferred = opts.mime || PREFERRED_MIME;
+
+    const img = await loadImageFromFile(fileOrBlob);
+    const { w, h } = computeTargetSize(img.naturalWidth || img.width, img.naturalHeight || img.height, maxW, maxH);
+    const canvas = createCanvas(w, h);
+    const ctx = canvas.getContext('2d', { alpha: true });
+
+    // Mjukare nedskalning (två steg vid jättestora bilder minskar aliasing)
+    // 1) Om extremt stor, gör en grov halvering
+    let srcCanvas = img;
+    if (Math.max(img.width, img.height) > 3500) {
+        const tmp = createCanvas(Math.round(img.width * 0.5), Math.round(img.height * 0.5));
+        tmp.getContext('2d').drawImage(img, 0, 0, tmp.width, tmp.height);
+        srcCanvas = tmp;
+    }
+    ctx.drawImage(srcCanvas, 0, 0, (srcCanvas.width || img.width), (srcCanvas.height || img.height), 0, 0, w, h);
+
+    const outMime = (canvas.toDataURL(preferred, 0.5).startsWith('data:')) ? preferred : 'image/jpeg';
+
+    // toBlob är async och ger Blob direkt (smidigare än dataURL -> Blob)
+    const blob = await new Promise((res) => canvas.toBlob(res, outMime, quality));
+    if (!blob) throw new Error('toBlob misslyckades');
+
+    return { blob, w, h, mime: outMime };
+}
+
+
 // ==========================
 // IndexedDB helper för bilder + Blob/DataURL helpers
 // ==========================
@@ -258,104 +322,6 @@ var DB = store.get();            // { recipes: [], theme: '...' }
 var currentCat = 'Hem';
 var wakeLock = null;
 
-// ==========================
-// IndexedDB för bilder
-// ==========================
-var idb = (function () {
-    var DB_NAME = 'baste-recepten-db';
-    var DB_VER = 1;
-    var IMG_STORE = 'images';
-
-    function open() {
-        return new Promise(function (resolve, reject) {
-            var req = indexedDB.open(DB_NAME, DB_VER);
-            req.onupgradeneeded = function (e) {
-                var db = e.target.result;
-                if (!db.objectStoreNames.contains(IMG_STORE)) {
-                    db.createObjectStore(IMG_STORE, { keyPath: 'id' }); // {id, blob, type, size, w, h, createdAt}
-                }
-            };
-            req.onsuccess = function (e) { resolve(e.target.result); };
-            req.onerror = function () { reject(req.error); };
-        });
-    }
-
-    async function withStore(mode, fn) {
-        var db = await open();
-        return new Promise(function (resolve, reject) {
-            var tx = db.transaction(IMG_STORE, mode);
-            var st = tx.objectStore(IMG_STORE);
-            var res;
-            Promise.resolve(fn(st)).then(function (r) { res = r; tx.commit && tx.commit(); })
-                .catch(reject);
-            tx.oncomplete = function () { resolve(res); };
-            tx.onerror = function () { reject(tx.error); };
-            tx.onabort = function () { reject(tx.error); };
-        });
-    }
-
-    function putImage(blob, meta) {
-        var id = (meta && meta.id) ? meta.id : genId();
-        var rec = Object.assign({ id: id, blob: blob, type: blob.type || 'application/octet-stream', size: blob.size || 0, createdAt: Date.now() }, meta || {});
-        return withStore('readwrite', function (st) {
-            st.put(rec);
-            return rec;
-        });
-    }
-
-    function getImage(id) {
-        return withStore('readonly', function (st) {
-            return new Promise(function (resolve, reject) {
-                var r = st.get(id);
-                r.onsuccess = function () { resolve(r.result || null); };
-                r.onerror = function () { reject(r.error); };
-            });
-        });
-    }
-
-    function deleteImage(id) {
-        return withStore('readwrite', function (st) { st.delete(id); });
-    }
-
-    function getAllMeta() {
-        return withStore('readonly', function (st) {
-            return new Promise(function (resolve, reject) {
-                var out = [];
-                var req = st.openCursor();
-                req.onsuccess = function (e) {
-                    var cur = e.target.result;
-                    if (cur) {
-                        var v = cur.value;
-                        out.push({ id: v.id, size: v.size || 0, type: v.type, w: v.w, h: v.h, createdAt: v.createdAt });
-                        cur.continue();
-                    } else resolve(out);
-                };
-                req.onerror = function () { reject(req.error); };
-            });
-        });
-    }
-
-    // Hämta ALLA poster inkl. blobbar (för full backup)
-    function getAllRecords() {
-        return withStore('readonly', function (st) {
-            return new Promise(function (resolve, reject) {
-                var out = [];
-                var req = st.openCursor();
-                req.onsuccess = function (e) {
-                    var cur = e.target.result;
-                    if (cur) { out.push(cur.value); cur.continue(); }
-                    else resolve(out);
-                };
-                req.onerror = function () { reject(req.error); };
-            });
-        });
-    }
-
-    // Töm hela bildlagret (för återställning)
-    function clearAll() { return withStore('readwrite', function (st) { st.clear(); }); }
-
-    return { putImage, getImage, deleteImage, getAllMeta, getAllRecords, clearAll };
-})();
 
 // ---- Hjälpare ----
 function el(s) { return document.querySelector(s); }
@@ -367,6 +333,31 @@ function escapeHtml(s) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
     });
 }
+
+
+async function setImgSrcFromRecipe(imgEl, rec, index) {
+    try {
+        const val = (rec.images && rec.images[index]) || null;
+        if (!val) { imgEl.src = DEFAULT_IMG; return; }
+
+        if (typeof val === 'string' && val.startsWith('data:')) {
+            // Gamla recept med inbäddade data-URL:er
+            imgEl.src = val;
+            return;
+        }
+
+        // Nya recept: ID lagrat i IndexedDB
+        const objURL = await idb.getImageObjectURL(val);
+        if (objURL) {
+            imgEl.src = objURL;
+        } else {
+            imgEl.src = DEFAULT_IMG;
+        }
+    } catch {
+        imgEl.src = DEFAULT_IMG;
+    }
+}
+
 
 // dataURL <-> Blob
 function dataURLtoBlob(dataUrl) {
@@ -772,50 +763,68 @@ function humanBytes(b) {
     if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
     return (b / 1024 / 1024).toFixed(1) + ' MB';
 }
+
 async function optimizeAllImages() {
     var btn = el('#optimizeBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Optimerar...'; }
+
     var MAX = 1280, Q = 0.82;
     var totalBefore = 0, totalAfter = 0, changed = 0, scanned = 0;
 
     for (var i = 0; i < DB.recipes.length; i++) {
         var r = DB.recipes[i];
         if (!r.images || !r.images.length) continue;
+
         for (var j = 0; j < r.images.length; j++) {
             var ref = r.images[j];
+
+            // FALL 1: gamla inbäddade data-URL:er -> komprimera + flytta till IDB
             if (typeof ref === 'string' && ref.startsWith('data:')) {
                 var blob0 = dataURLtoBlob(ref);
                 if (!blob0) continue;
+
                 scanned++;
                 totalBefore += blob0.size;
+
                 var resized = await resizeBlobToJpeg(blob0, MAX, Q);
                 var candidate = resized && resized.blob ? resized.blob : blob0;
                 var meta = resized ? { w: resized.w, h: resized.h } : {};
-                var rec = await idb.putImage(candidate, meta);
-                r.images[j] = { type: 'idb', id: rec.id };
+
+                var recSaved = await idb.putImage(candidate, meta);
+                // NYTT: spara bara sträng-ID i receptet
+                r.images[j] = recSaved.id;
                 store.set(DB);
+
                 totalAfter += candidate.size;
                 if (candidate.size < blob0.size) changed++;
-            } else if (ref && ref.type === 'idb' && ref.id) {
-                var imgRec = await idb.getImage(ref.id);
+            }
+
+            // FALL 2: redan i IDB (ref är ett sträng-ID)
+            else if (typeof ref === 'string') {
+                var imgRec = await idb.getRecord(ref);
                 if (!imgRec || !imgRec.blob) continue;
+
                 scanned++;
                 var before = imgRec.blob.size || 0;
                 totalBefore += before;
+
                 var resized2 = await resizeBlobToJpeg(imgRec.blob, MAX, Q);
                 if (resized2 && resized2.blob && resized2.blob.size < before) {
-                    await idb.putImage(resized2.blob, { id: ref.id, w: resized2.w, h: resized2.h });
+                    // skriv tillbaka på SAMMA id => r.images[j] behöver inte ändras
+                    await idb.putImage(resized2.blob, { id: ref, w: resized2.w, h: resized2.h });
                     totalAfter += resized2.blob.size;
                     changed++;
                 } else {
                     totalAfter += before;
                 }
             }
+
             if (btn) btn.textContent = 'Optimerar... (' + (i + 1) + '/' + DB.recipes.length + ')';
         }
     }
 
     if (btn) { btn.disabled = false; btn.textContent = 'Optimera lagring'; }
+
     alert(
         'Genomgång klar!\n\n' +
         'Skannade bilder: ' + scanned + '\n' +
@@ -824,8 +833,11 @@ async function optimizeAllImages() {
         'Efter: ' + humanBytes(totalAfter) + '\n' +
         'Sparat: ' + humanBytes(Math.max(0, totalBefore - totalAfter))
     );
+
     renderUsage();
 }
+
+// Skapa knappen om den saknas och koppla händelsen
 (function ensureOptimizeBtn() {
     if (!el('#optimizeBtn')) {
         var tools = el('#toolsWrap');
@@ -838,6 +850,7 @@ async function optimizeAllImages() {
             tools.insertBefore(btn, tools.querySelector('p.hint') || null);
         }
     }
+
     var optBtn = el('#optimizeBtn');
     if (optBtn && !optBtn._bound) {
         optBtn.addEventListener('click', function () {
@@ -849,6 +862,7 @@ async function optimizeAllImages() {
         optBtn._bound = true;
     }
 })();
+
 
 // ==========================
 // Formkategori-chips
@@ -931,39 +945,47 @@ if (saveBtn) {
         if (!title) { alert('Skriv en rubrik.'); return; }
         if (!selectedFormCat) { alert('Välj en kategori.'); return; }
 
-        var images = [];
         var filesEl = el('#imageInput');
-        var files = filesEl ? filesEl.files : null;
+        var files = (filesEl && filesEl.files) ? Array.from(filesEl.files) : [];
 
-        if (files && files.length) {
-            var processed = await readFilesAsCompressedBlobs(files);
-            for (var i = 0; i < processed.length; i++) {
-                var r = processed[i];
-                var rec = await idb.putImage(r.blob, { w: r.w, h: r.h });
-                images.push({ type: 'idb', id: rec.id });
+        // Komprimera & spara i IDB
+        // Skapar ID:n som recId + löpnummer så vi har stabila nycklar/för backup/import
+        const recId = genId();
+        const imageIds = [];
+        try {
+            for (let i = 0; i < files.length; i++) {
+                const f = files[i];
+                const { blob, w, h } = await compressImage(f);
+                const imgId = recId + ':' + String(i); // t.ex. "550e8400-...:0"
+                await idb.putImage(blob, { id: imgId, w, h });
+                imageIds.push(imgId);
             }
-        } else {
-            images.push(DEFAULT_IMG); // placeholder
+        } catch (e) {
+            console.error('Bildkomprimering/lagring misslyckades:', e);
+            alert('Kunde inte komprimera/spara en eller flera bilder. Fortsätter utan bilder.');
         }
 
-        var recMeta = {
-            id: genId(),
+        var rec = {
+            id: recId,
             title: title,
             cat: selectedFormCat,
             fav: formFav,
-            images: images,
+            images: imageIds.length ? imageIds : [],   // IDB-IDs (inte data-URL längre)
             ings: lines(el('#ingTextarea') ? el('#ingTextarea').value : ''),
             inst: el('#instTextarea') ? el('#instTextarea').value.trim() : '',
             tags: parseTags(el('#tagInput') ? el('#tagInput').value : ''),
             createdAt: Date.now()
         };
-        DB.recipes.push(recMeta);
+
+        if (!rec.images.length) {
+            // Om inga bilder sparades, visa tom-bild
+            rec.images = []; // håller tomt, vi visar DEFAULT_IMG vid render
+        }
+
+        DB.recipes.push(rec);
         store.set(DB);
         clearForm();
-
-        routeTo('Hem');
-        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { }
-        renderUsage();
+        routeTo('Hem'); // tillbaka till första sidan
     });
 }
 var clearBtn = el('#clearBtn');
@@ -1011,9 +1033,14 @@ function renderCards(list) {
 
     list.forEach(function (r) {
         var c = document.createElement('article'); c.className = 'card';
-        var img = document.createElement('img'); img.className = 'thumb'; img.alt = r.title; img.loading = 'lazy';
+        var img = document.createElement('img');
+        img.className = 'thumb';
+        img.alt = r.title;
+        img.loading = 'lazy';
+        img.src = DEFAULT_IMG; // fallback
+        setImgSrcFromRecipe(img, r, 0); // async sets correct image (IDB or dataURL)
         c.appendChild(img);
-        setImageAsync(img, (r.images && r.images[0]) || DEFAULT_IMG);
+
 
         var body = document.createElement('div'); body.className = 'card-body';
         var row = document.createElement('div'); row.className = 'title-row';
@@ -1081,9 +1108,14 @@ function renderRecent() {
     var list = DB.recipes.slice().sort(function (a, b) { return b.createdAt - a.createdAt; }).slice(0, 5);
     list.forEach(function (r) {
         var c = document.createElement('article'); c.className = 'card';
-        var img = document.createElement('img'); img.className = 'thumb'; img.alt = r.title; img.loading = 'lazy';
+        var img = document.createElement('img');
+        img.className = 'thumb';
+        img.alt = r.title;
+        img.loading = 'lazy';
+        img.src = DEFAULT_IMG;
+        setImgSrcFromRecipe(img, r, 0);
         c.appendChild(img);
-        setImageAsync(img, (r.images && r.images[0]) || DEFAULT_IMG);
+
 
         var body = document.createElement('div'); body.className = 'card-body';
         var row = document.createElement('div'); row.className = 'title-row';
@@ -1159,6 +1191,9 @@ function runSearch() {
     });
     renderCards(list);
 }
+
+
+
 // ==========================
 // Detaljvy
 // ==========================
@@ -1189,18 +1224,29 @@ async function openDetail(id) {
         detailFav.textContent = r.fav ? '★ Favorit' : '☆ Favorit';
     }
 
-    var imgs = (r.images && r.images.length ? r.images : [DEFAULT_IMG]);
-    if (detailMain) setImageAsync(detailMain, imgs[0]);
-
+    var imgs = (r.images && r.images.length) ? r.images : [];
+    if (detailMain) {
+        detailMain.src = DEFAULT_IMG;
+        if (imgs.length) {
+            // sätt första bilden
+            setImgSrcFromRecipe(detailMain, r, 0);
+        }
+    }
     if (detailThumbs) {
         detailThumbs.innerHTML = '';
-        imgs.forEach(function (ref, i) {
-            var t = document.createElement('img'); t.alt = r.title + ' bild ' + (i + 1);
-            detailThumbs.appendChild(t);
-            setImageAsync(t, ref);
-            t.addEventListener('click', function () { if (detailMain) setImageAsync(detailMain, ref); });
-        });
+        if (imgs.length) {
+            imgs.forEach(function (_idOrData, i) {
+                var t = document.createElement('img');
+                t.alt = r.title + ' bild ' + (i + 1);
+                t.loading = 'lazy';
+                t.src = DEFAULT_IMG;
+                setImgSrcFromRecipe(t, r, i);
+                t.addEventListener('click', function () { if (detailMain) setImgSrcFromRecipe(detailMain, r, i); });
+                detailThumbs.appendChild(t);
+            });
+        }
     }
+
 
     if (detailTagsWrap) {
         if (r.tags && r.tags.length) {
@@ -1234,21 +1280,34 @@ if (closeDetailBtn) closeDetailBtn.addEventListener('click', function () { if (d
 var openImageBtn = el('#openImage');
 if (openImageBtn) {
     openImageBtn.addEventListener('click', async function () {
-        var r = DB.recipes.find(function (x) { return x.id === openedId; }); if (!r) return;
+        var r = DB.recipes.find(function (x) { return x.id === openedId; });
+        if (!r) return;
+
         var ref = (r.images && r.images.length) ? r.images[0] : null;
         if (!ref) return;
+
+        // 1) Gamla recept: data-URL
         if (typeof ref === 'string' && ref.startsWith('data:')) {
-            var b = dataURLtoBlob(ref); if (b) openOrDownloadBlob(b, (r.title || 'bild') + '.png');
+            var b = dataURLtoBlob(ref);
+            if (b) openOrDownloadBlob(b, (r.title || 'bild') + '.png');
             else window.open(ref, '_blank', 'noopener');
             return;
         }
-        if (ref.type === 'idb') {
-            var rec = await idb.getImage(ref.id);
-            if (rec && rec.blob) openOrDownloadBlob(rec.blob, (r.title || 'bild') + (rec.type === 'image/png' ? '.png' : '.jpg'));
+
+        // 2) Nya recept: ref är ett ID (sträng)
+        if (typeof ref === 'string') {
+            try {
+                const recImg = await idb.getRecord(ref);
+                if (recImg && recImg.blob) {
+                    const ext = (recImg.type === 'image/png') ? '.png' : '.jpg';
+                    openOrDownloadBlob(recImg.blob, (r.title || 'bild') + ext);
+                }
+            } catch (e) {
+                console.error(e);
+            }
         }
     });
 }
-if (detail) detail.addEventListener('close', function () { releaseWakeLock(); });
 
 // Favorit-toggling
 if (detailFav) {
