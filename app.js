@@ -8,6 +8,177 @@ var DEFAULT_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600"><rect width="100%" height="100%" fill="#203228"/><text x="400" y="300" fill="#cfe9dd" font-family="Segoe UI, Arial" text-anchor="middle" font-size="42" dy=".35em">Ingen bild</text></svg>'
 );
 
+// ==========================
+// IndexedDB helper för bilder + Blob/DataURL helpers
+// ==========================
+
+// Enkel wrapper runt IndexedDB för att spara/hämta bilder som Blob
+const idb = (function () {
+    const DB_NAME = 'baste-recepten-idb';
+    const STORE = 'images';
+    let _dbPromise = null;
+
+    function openDB() {
+        if (_dbPromise) return _dbPromise;
+        _dbPromise = new Promise(function (resolve, reject) {
+            const req = indexedDB.open(DB_NAME, 1);
+            req.onupgradeneeded = function (e) {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(STORE)) {
+                    // keyPath = id så vi kan sätta egendefinierade id:n (t.ex. recept-id + index)
+                    db.createObjectStore(STORE, { keyPath: 'id' });
+                }
+            };
+            req.onsuccess = function () { resolve(req.result); };
+            req.onerror = function () { reject(req.error || new Error('Kunde inte öppna IDB')); };
+        });
+        return _dbPromise;
+    }
+
+    async function txStore(mode) {
+        const db = await openDB();
+        const tx = db.transaction(STORE, mode);
+        const store = tx.objectStore(STORE);
+        return { tx, store };
+    }
+
+    // Spara bild (Blob). meta kan innehålla { id, w, h } etc.
+    async function putImage(blob, meta) {
+        if (!(blob instanceof Blob)) throw new Error('putImage: blob saknas/ogiltig');
+        if (!meta || !meta.id) throw new Error('putImage: meta.id saknas');
+        const rec = {
+            id: meta.id,
+            blob: blob,
+            type: blob.type || 'image/jpeg',
+            size: blob.size || 0,
+            w: meta.w || null,
+            h: meta.h || null,
+            createdAt: Date.now()
+        };
+        const { tx, store } = await txStore('readwrite');
+        await new Promise((res, rej) => {
+            const r = store.put(rec);
+            r.onsuccess = () => res();
+            r.onerror = () => rej(r.error);
+        });
+        await new Promise((res, rej) => {
+            tx.oncomplete = () => res();
+            tx.onerror = () => rej(tx.error);
+            tx.onabort = () => rej(tx.error || new Error('Transaction aborted'));
+        });
+        return rec.id;
+    }
+
+    // Hämta en bildpost (inkl. blob)
+    async function getRecord(id) {
+        const { tx, store } = await txStore('readonly');
+        const rec = await new Promise((res, rej) => {
+            const r = store.get(id);
+            r.onsuccess = () => res(r.result || null);
+            r.onerror = () => rej(r.error);
+        });
+        return rec;
+    }
+
+    // Hämta alla bildposter
+    async function getAllRecords() {
+        const { store } = await txStore('readonly');
+        const all = await new Promise((res, rej) => {
+            const r = store.getAll();
+            r.onsuccess = () => res(r.result || []);
+            r.onerror = () => rej(r.error);
+        });
+        return all;
+    }
+
+    // Rensa allt
+    async function clearAll() {
+        const { tx, store } = await txStore('readwrite');
+        await new Promise((res, rej) => {
+            const r = store.clear();
+            r.onsuccess = () => res();
+            r.onerror = () => rej(r.error);
+        });
+        await new Promise((res, rej) => {
+            tx.oncomplete = () => res();
+            tx.onerror = () => rej(tx.error);
+            tx.onabort = () => rej(tx.error || new Error('Transaction aborted'));
+        });
+    }
+
+    // Skapa ett objectURL för en bild (glöm inte URL.revokeObjectURL när du är klar)
+    async function getImageObjectURL(id) {
+        const rec = await getRecord(id);
+        if (!rec || !rec.blob) return null;
+        return URL.createObjectURL(rec.blob);
+    }
+
+    // Ta bort en bild
+    async function deleteImage(id) {
+        const { tx, store } = await txStore('readwrite');
+        await new Promise((res, rej) => {
+            const r = store.delete(id);
+            r.onsuccess = () => res();
+            r.onerror = () => rej(r.error);
+        });
+        await new Promise((res, rej) => {
+            tx.oncomplete = () => res();
+            tx.onerror = () => rej(tx.error);
+            tx.onabort = () => rej(tx.error || new Error('Transaction aborted'));
+        });
+    }
+
+    return {
+        putImage,
+        getRecord,
+        getAllRecords,
+        clearAll,
+        getImageObjectURL,
+        deleteImage
+    };
+})();
+
+// ==========================
+// Blob/DataURL helpers
+// ==========================
+
+// Blob -> DataURL (för export/backup)
+function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+        try {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error || new Error('blobToDataURL misslyckades'));
+            reader.readAsDataURL(blob);
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
+// DataURL -> Blob (för import/återställning)
+function dataURLtoBlob(dataURL) {
+    try {
+        if (!dataURL || typeof dataURL !== 'string' || !dataURL.startsWith('data:')) return null;
+        const parts = dataURL.split(',');
+        if (parts.length < 2) return null;
+
+        const header = parts[0]; // "data:image/png;base64"
+        const base64 = parts[1];
+        const mimeMatch = header.match(/^data:([^;]+);base64$/i);
+        const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+
+        const binStr = atob(base64);
+        const len = binStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) bytes[i] = binStr.charCodeAt(i);
+        return new Blob([bytes], { type: mime });
+    } catch (e) {
+        console.error('dataURLtoBlob fel:', e);
+        return null;
+    }
+}
+
 // ---- ID helpers ----
 function uuidv4() {
     var cryptoObj = (window.crypto || window.msCrypto);
@@ -377,45 +548,53 @@ if (importBtn && importFile) {
 // ==========================
 // Full backup (inkl. bilder i IndexedDB) – EXPORT
 // ==========================
-(function ensureFullBackupBtn() {
-    var tools = el('#toolsWrap');
+function ensureFullBackupBtn() {
+    const tools = el('#toolsWrap');
     if (!tools) return;
 
+    // Skapa knapp om den inte finns
     if (!el('#fullBackupBtn')) {
-        var btn = document.createElement('button');
+        const btn = document.createElement('button');
         btn.id = 'fullBackupBtn';
         btn.className = 'btn small';
         btn.textContent = 'Full backup (inkl. bilder)';
         btn.title = 'Exportera ALLT som en JSON (metadata + bilder)';
-        var hint = tools.querySelector('p.hint');
+        const hint = tools.querySelector('p.hint');
         tools.insertBefore(btn, hint || null);
     }
 
-    var fullBtn = el('#fullBackupBtn');
+    const fullBtn = el('#fullBackupBtn');
     if (fullBtn && !fullBtn._bound) {
         fullBtn.addEventListener('click', async function () {
             try {
                 fullBtn.disabled = true;
                 fullBtn.textContent = 'Skapar backup...';
 
-                var meta = { recipes: DB.recipes, theme: DB.theme };
-                var records = await idb.getAllRecords();
-                var images = [];
-                for (var i = 0; i < records.length; i++) {
-                    var r = records[i];
-                    var dataURL = await blobToDataURL(r.blob);
+                // 1) Metadata (recept + tema)
+                const meta = { recipes: DB.recipes, theme: DB.theme };
+
+                // 2) Hämta alla bilder från IndexedDB
+                const records = await idb.getAllRecords();
+                const total = records.length;
+                const images = [];
+
+                for (let i = 0; i < total; i++) {
+                    const r = records[i];
+                    const dataURL = await blobToDataURL(r.blob);
                     images.push({
                         id: r.id,
                         type: r.type || 'image/jpeg',
                         size: r.size || (r.blob && r.blob.size) || 0,
-                        w: r.w, h: r.h,
+                        w: r.w,
+                        h: r.h,
                         createdAt: r.createdAt || Date.now(),
                         dataURL: dataURL
                     });
-                    fullBtn.textContent = 'Skapar backup... (' + (i + 1) + '/' + records.length + ')';
+                    fullBtn.textContent = `Skapar backup... (${i + 1}/${total})`;
                 }
 
-                var payload = {
+                // 3) Paketera
+                const payload = {
                     version: 1,
                     createdAt: Date.now(),
                     note: 'Full backup av Bästa recepten (metadata + bilder)',
@@ -423,46 +602,54 @@ if (importBtn && importFile) {
                     images: images
                 };
 
-                var json = JSON.stringify(payload);
-                var blob = new Blob([json], { type: 'application/json' });
-                var a = document.createElement('a');
+                const json = JSON.stringify(payload);
+                const blob = new Blob([json], { type: 'application/json' });
+                const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
-                var stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-                a.download = 'baste-recepten-full-backup-' + stamp + '.json';
+                const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+                a.download = `baste-recepten-full-backup-${stamp}.json`;
                 a.click();
                 URL.revokeObjectURL(a.href);
 
-                fullBtn.textContent = 'Full backup (inkl. bilder)';
-                fullBtn.disabled = false;
+                // 4) Uppdatera senaste backup-tid
+                try {
+                    localStorage.setItem('lastFullBackupAt', String(Date.now()));
+                    renderLastBackupInfo();
+                } catch (_) { }
+
             } catch (e) {
                 console.error(e);
                 alert('Kunde inte skapa full backup: ' + e.message);
+            } finally {
                 fullBtn.textContent = 'Full backup (inkl. bilder)';
                 fullBtn.disabled = false;
             }
         });
         fullBtn._bound = true;
     }
-})();
+}
+
 
 // ==========================
 // Återställ full backup (ersätter allt)
 // ==========================
-(function ensureRestoreFullBtn() {
-    var tools = el('#toolsWrap');
+function ensureRestoreFullBtn() {
+    const tools = el('#toolsWrap');
     if (!tools) return;
 
+    // Skapa knapp om den inte finns
     if (!el('#restoreFullBtn')) {
-        var btn = document.createElement('button');
+        const btn = document.createElement('button');
         btn.id = 'restoreFullBtn';
         btn.className = 'btn small secondary';
         btn.textContent = 'Återställ full backup';
         btn.title = 'Läs in JSON-backup som innehåller metadata + bilder (ersätter allt)';
-        var hint = tools.querySelector('p.hint');
+        const hint = tools.querySelector('p.hint');
         tools.insertBefore(btn, hint || null);
     }
+    // Skapa dold filinput om den inte finns
     if (!el('#restoreFullFile')) {
-        var inp = document.createElement('input');
+        const inp = document.createElement('input');
         inp.type = 'file';
         inp.id = 'restoreFullFile';
         inp.accept = 'application/json';
@@ -470,59 +657,112 @@ if (importBtn && importFile) {
         tools.appendChild(inp);
     }
 
-    var btn = el('#restoreFullBtn');
-    var file = el('#restoreFullFile');
+    const btn = el('#restoreFullBtn');
+    const file = el('#restoreFullFile');
 
     if (btn && file && !btn._bound) {
         btn.addEventListener('click', function () { file.click(); });
+
         file.addEventListener('change', async function () {
-            var f = file.files && file.files[0];
+            const f = file.files && file.files[0];
             if (!f) return;
+
             try {
-                var ok = confirm('Detta ersätter ALLA recept och bilder med innehållet i backup-filen. Fortsätt?');
+                const ok = confirm(
+                    'Detta ersätter ALLA recept och bilder med innehållet i backup-filen.\n' +
+                    'Rekommenderas att göra en ny full backup först.\n\nFortsätt?'
+                );
                 if (!ok) { file.value = ''; return; }
 
-                btn.disabled = true; btn.textContent = 'Återställer...';
+                btn.disabled = true;
+                btn.textContent = 'Läser fil...';
 
-                var text = await f.text();
-                var payload = JSON.parse(text);
+                // Läs och parsa backupfil
+                const text = await f.text();
+                let payload;
+                try { payload = JSON.parse(text); } catch (e) { throw new Error('Ogiltig JSON'); }
+
+                // Grundvalidering
                 if (!payload || payload.version !== 1 || !payload.meta || !Array.isArray(payload.meta.recipes) || !Array.isArray(payload.images)) {
-                    throw new Error('Ogiltig backupfil');
+                    throw new Error('Ogiltig backupfil (saknar meta/images eller fel version)');
                 }
 
-                // 1) Töm IDB
+                // 1) Töm hela IDB
+                btn.textContent = 'Tömmer bilder...';
                 await idb.clearAll();
 
                 // 2) Lägg in alla bilder igen (behåll samma id)
-                for (var i = 0; i < payload.images.length; i++) {
-                    var im = payload.images[i];
+                const total = payload.images.length;
+                for (let i = 0; i < total; i++) {
+                    const im = payload.images[i];
                     if (!im || !im.id || !im.dataURL) continue;
-                    var blob = dataURLtoBlob(im.dataURL);
+                    const blob = dataURLtoBlob(im.dataURL);
                     if (!blob) continue;
                     await idb.putImage(blob, { id: im.id, w: im.w, h: im.h });
-                    btn.textContent = 'Återställer... (' + (i + 1) + '/' + payload.images.length + ')';
+                    btn.textContent = `Återställer bilder... (${i + 1}/${total})`;
                 }
 
-                // 3) Skriv metadata
+                // 3) Skriv metadata (recept + tema)
                 DB.recipes = payload.meta.recipes || [];
                 DB.theme = payload.meta.theme || DB.theme;
                 store.set(DB);
 
-                // 4) UI
+                // 4) Uppdatera "senast backup" (valfritt: sätt till backupfilens skapad-tid)
+                try {
+                    const ts = payload.createdAt ? Number(payload.createdAt) : Date.now();
+                    localStorage.setItem('lastFullBackupAt', String(ts));
+                    renderLastBackupInfo();
+                } catch (_) { }
+
+                // 5) UI-uppdatering
+                btn.textContent = 'Klart! Uppdaterar vy...';
                 routeTo('Hem');
-                renderUsage();
-                alert('Återställning klar!');
+                await renderUsage();
+                alert('Återställning klar! Alla recept och bilder har ersatts från backupen.');
             } catch (e) {
                 console.error(e);
                 alert('Kunde inte återställa: ' + e.message);
             } finally {
-                btn.disabled = false; btn.textContent = 'Återställ full backup';
+                btn.disabled = false;
+                btn.textContent = 'Återställ full backup';
                 file.value = '';
             }
         });
+
         btn._bound = true;
     }
-})();
+}
+
+// ==========================
+// Visa datum för senaste full backup
+// ==========================
+function renderLastBackupInfo() {
+    const tools = el('#toolsWrap');
+    if (!tools) return;
+
+    // Skapa element om det inte finns
+    if (!el('#lastBackupInfo')) {
+        const p = document.createElement('p');
+        p.id = 'lastBackupInfo';
+        p.style.fontSize = '0.85em';
+        p.style.opacity = '0.8';
+        p.style.marginTop = '0.5rem';
+        tools.appendChild(p);
+    }
+
+    const elInfo = el('#lastBackupInfo');
+    const ts = localStorage.getItem('lastFullBackupAt');
+    if (!ts) {
+        elInfo.textContent = '💾 Ingen full backup har gjorts än';
+    } else {
+        const d = new Date(Number(ts));
+        const datestr = d.toLocaleDateString('sv-SE', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit'
+        });
+        elInfo.textContent = `💾 Senaste full backup: ${datestr}`;
+    }
+}
 
 // ==========================
 // OPTIMERA LAGRING (IDB-bilder)
@@ -1262,6 +1502,14 @@ function releaseWakeLock() { try { if (wakeLock && wakeLock.release) { wakeLock.
     renderCatList();
     routeTo('Hem');
 
+    // Visa lagringsstatus (om din renderUsage finns async)
+    await renderUsage();
+
+    // Skapa/export/import-knappar + backup-info
+    ensureFullBackupBtn();
+    ensureRestoreFullBtn();
+    renderLastBackupInfo();
+
     // Första-run seed
     if (DB.recipes.length === 0) {
         var baseTags = ['jul', 'keto', 'sockerfri', 'pepparkakor'];
@@ -1286,15 +1534,15 @@ function releaseWakeLock() { try { if (wakeLock && wakeLock.release) { wakeLock.
             createdAt: Date.now()
         };
         var ketoKopia = JSON.parse(JSON.stringify(pepparkaksRecept));
-        ketoKopia.id = genId(); ketoKopia.cat = 'keto'; ketoKopia.fav = false;
+        ketoKopia.id = genId();
+        ketoKopia.cat = 'keto';
+        ketoKopia.fav = false;
 
         DB.recipes.push(pepparkaksRecept);
         DB.recipes.push(ketoKopia);
         store.set(DB);
         routeTo('Hem');
     }
-
-    await renderUsage();
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js').catch(function () { });
